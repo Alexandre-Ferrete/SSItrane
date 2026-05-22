@@ -1,0 +1,109 @@
+2026-05-09 08:33:37,427 - INFO - [*] Chaves do servidor jÃ¡ existem. A carregar...
+2026-05-09 08:33:37,532 - INFO - [*] Servidor Ã  escuta em ('0.0.0.0', 5555)
+2026-05-09 08:33:48,462 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 54442)
+2026-05-09 08:34:03,284 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 52640)
+2026-05-09 08:42:56,559 - INFO - [*] A encerrar servidor...
+2026-05-09 08:42:56,560 - INFO - [*] Recursos libertados.
+2026-05-09 08:43:01,466 - INFO - [*] Chaves do servidor jÃ¡ existem. A carregar...
+2026-05-09 08:43:01,514 - INFO - [*] Servidor Ã  escuta em ('0.0.0.0', 5555)
+2026-05-09 08:43:05,652 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 56962)
+2026-05-09 08:43:17,805 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 57654)
+2026-05-18 14:06:32,027 - INFO - [*] Chaves do servidor jÃ¡ existem. A carregar...
+2026-05-18 14:06:32,086 - INFO - [*] Servidor Ã  escuta em ('0.0.0.0', 5555)
+2026-05-18 14:07:24,003 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 38440)
+2026-05-18 14:07:55,305 - INFO - [*] A validar chave pÃºblica para jonas
+2026-05-18 14:07:55,309 - INFO - [*] A validar certificado para jonas
+2026-05-18 14:08:57,430 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 41608)
+2026-05-18 14:09:10,228 - INFO - [*] A validar chave pÃºblica para pistolas
+2026-05-18 14:09:10,232 - INFO - [*] A validar certificado para pistolas
+2026-05-18 14:10:43,666 - INFO - [*] A encerrar servidor...
+2026-05-18 14:11:12,312 - INFO - [*] Chaves do servidor jÃ¡ existem. A carregar...
+2026-05-18 14:11:12,357 - INFO - [*] Servidor Ã  escuta em ('0.0.0.0', 5555)
+2026-05-18 14:12:48,774 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 43438)
+2026-05-18 14:52:13,837 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 57156)
+2026-05-18 14:52:46,633 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 37702)
+2026-05-18 14:53:29,136 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 45028)
+2026-05-18 14:53:43,477 - INFO - [+] Nova conexÃ£o: ('127.0.0.1', 46026)
+2026-05-18 14:54:02,326 - INFO - [*] A encerrar servidor...
+2026-05-20 21:03:31,772 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-20 21:03:31,786 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-20 21:03:54,793 - INFO - [+] Nova conexão: ('127.0.0.1', 62534)
+2026-05-20 21:03:58,975 - INFO - [*] A validar chave pública para ujfgdo
+2026-05-20 21:03:58,975 - INFO - [*] A validar certificado para ujfgdo
+2026-05-20 21:07:14,344 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-20 21:07:14,354 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-20 21:07:16,240 - INFO - [+] Nova conexão: ('127.0.0.1', 58814)
+2026-05-20 21:07:21,158 - INFO - [*] A validar chave pública para ew
+2026-05-20 21:07:21,158 - INFO - [*] A validar certificado para ew
+2026-05-20 21:08:22,321 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-20 21:08:22,332 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-20 21:08:58,170 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-20 21:08:58,180 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-20 21:09:07,890 - INFO - [+] Nova conexão: ('127.0.0.1', 58590)
+2026-05-20 21:09:09,625 - INFO - [+] Nova conexão: ('127.0.0.1', 58593)
+2026-05-20 21:10:12,987 - INFO - [+] Nova conexão: ('127.0.0.1', 57316)
+2026-05-20 21:10:19,497 - INFO - [*] A validar chave pública para okk
+2026-05-20 21:10:19,508 - INFO - [*] A validar certificado para okk
+2026-05-20 21:24:02,903 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-20 21:24:02,916 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-20 21:24:06,015 - INFO - [+] Nova conexão: ('127.0.0.1', 61556)
+2026-05-20 21:24:10,065 - INFO - [*] A validar chave pública para kmol
+2026-05-20 21:24:10,066 - INFO - [*] A validar certificado para kmol
+2026-05-20 21:28:07,373 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-20 21:28:07,385 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-20 21:28:11,611 - INFO - [+] Nova conexão: ('127.0.0.1', 56669)
+2026-05-20 21:28:18,292 - INFO - [*] A validar chave pública para ipºkmo
+2026-05-20 21:28:18,295 - INFO - [*] A validar certificado para ipºkmo
+2026-05-20 21:28:29,381 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-20 21:28:29,390 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-20 21:28:31,885 - INFO - [+] Nova conexão: ('127.0.0.1', 55383)
+2026-05-20 21:28:35,059 - INFO - [*] A validar chave pública para jkgf
+2026-05-20 21:28:35,060 - INFO - [*] A validar certificado para jkgf
+2026-05-20 21:30:00,661 - INFO - [+] Nova conexão: ('127.0.0.1', 55768)
+2026-05-20 21:30:47,825 - INFO - [*] Ratchet solicitado por jkgf para sessão com ew. A enviar salt...
+2026-05-20 21:30:47,825 - INFO - [*] Salt de ratchet enviado a ew
+2026-05-22 14:11:40,154 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-22 14:11:40,250 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-22 14:12:11,250 - INFO - [+] Nova conexão: ('127.0.0.1', 64922)
+2026-05-22 14:12:13,052 - INFO - [+] Nova conexão: ('127.0.0.1', 64924)
+2026-05-22 14:12:18,931 - INFO - [*] A validar chave pública para a
+2026-05-22 14:12:18,932 - INFO - [*] A validar certificado para a
+2026-05-22 14:12:32,503 - INFO - [*] A validar chave pública para b
+2026-05-22 14:12:32,504 - INFO - [*] A validar certificado para b
+2026-05-22 14:13:12,404 - INFO - [*] Ratchet solicitado por a para sessão com b. A enviar salt...
+2026-05-22 14:13:12,404 - INFO - [*] Salt de ratchet enviado a b
+2026-05-22 14:13:14,795 - INFO - [*] Ratchet solicitado por a para sessão com b. A enviar salt...
+2026-05-22 14:13:14,796 - INFO - [*] Salt de ratchet enviado a b
+2026-05-22 14:13:16,428 - INFO - [*] Ratchet solicitado por a para sessão com b. A enviar salt...
+2026-05-22 14:13:16,428 - INFO - [*] Salt de ratchet enviado a b
+2026-05-22 14:13:18,204 - INFO - [*] Ratchet solicitado por a para sessão com b. A enviar salt...
+2026-05-22 14:13:18,205 - INFO - [*] Salt de ratchet enviado a b
+2026-05-22 14:13:29,397 - INFO - [*] Ratchet solicitado por b para sessão com a. A enviar salt...
+2026-05-22 14:13:29,397 - INFO - [*] Salt de ratchet enviado a a
+2026-05-22 14:13:36,764 - INFO - [*] Ratchet solicitado por a para sessão com b. A enviar salt...
+2026-05-22 14:13:36,764 - INFO - [*] Salt de ratchet enviado a b
+2026-05-22 14:13:38,820 - INFO - [*] Ratchet solicitado por b para sessão com a. A enviar salt...
+2026-05-22 14:13:38,821 - INFO - [*] Salt de ratchet enviado a a
+2026-05-22 14:14:28,516 - INFO - [+] Nova conexão: ('127.0.0.1', 52259)
+2026-05-22 14:14:32,374 - INFO - [*] A validar chave pública para c
+2026-05-22 14:14:32,375 - INFO - [*] A validar certificado para c
+2026-05-22 14:16:19,386 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-22 14:16:19,396 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-22 14:16:23,255 - INFO - [+] Nova conexão: ('127.0.0.1', 49799)
+2026-05-22 14:16:27,975 - INFO - [+] Nova conexão: ('127.0.0.1', 49801)
+2026-05-22 14:16:31,287 - INFO - [+] Nova conexão: ('127.0.0.1', 49803)
+2026-05-22 14:18:10,274 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-22 14:18:10,282 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-22 14:18:13,875 - INFO - [+] Nova conexão: ('127.0.0.1', 52450)
+2026-05-22 14:18:16,618 - INFO - [+] Nova conexão: ('127.0.0.1', 52452)
+2026-05-22 14:18:18,775 - INFO - [+] Nova conexão: ('127.0.0.1', 52456)
+2026-05-22 14:18:43,482 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-22 14:18:43,520 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-22 14:18:46,946 - INFO - [+] Nova conexão: ('127.0.0.1', 52467)
+2026-05-22 14:18:50,922 - INFO - [+] Nova conexão: ('127.0.0.1', 52469)
+2026-05-22 14:18:59,930 - INFO - [*] A validar chave pública para a
+2026-05-22 14:18:59,931 - INFO - [*] A validar certificado para a
+2026-05-22 14:19:07,285 - INFO - [*] A validar chave pública para b
+2026-05-22 14:19:07,286 - INFO - [*] A validar certificado para b
+2026-05-22 14:19:10,667 - INFO - [*] A validar chave pública para c
+2026-05-22 14:19:10,669 - INFO - [*] A validar certificado para c
