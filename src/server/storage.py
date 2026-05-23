@@ -24,6 +24,18 @@ class Storage:
             pass
 
         try:
+            self.conn.execute("ALTER TABLE offline_messages ADD COLUMN message_key BLOB")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            self.conn.execute("ALTER TABLE user_devices ADD COLUMN encryption_key BLOB")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        try:
             self.conn.execute("SELECT id FROM user_devices WHERE username = 'test'")
         except sqlite3.OperationalError:
             self.conn.execute("""
@@ -32,6 +44,7 @@ class Storage:
                     username TEXT NOT NULL,
                     public_key BLOB NOT NULL,
                     certificate BLOB NOT NULL,
+                    encryption_key BLOB,
                     salt BLOB NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -55,6 +68,7 @@ class Storage:
                 username TEXT NOT NULL,
                 public_key BLOB NOT NULL,
                 certificate BLOB NOT NULL,
+                encryption_key BLOB,
                 salt BLOB NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -135,11 +149,11 @@ class Storage:
         return None
 
     # DEVICE FUNCTIONS
-    def add_device(self, username: str, public_key: bytes, certificate: bytes, salt: bytes) -> bool:
+    def add_device(self, username: str, public_key: bytes, certificate: bytes, salt: bytes, encryption_key: bytes = None) -> bool:
         try:
             self.conn.execute(
-                "INSERT INTO user_devices (username, public_key, certificate, salt) VALUES (?, ?, ?, ?)",
-                (username, public_key, certificate, salt)
+                "INSERT INTO user_devices (username, public_key, certificate, salt, encryption_key) VALUES (?, ?, ?, ?, ?)",
+                (username, public_key, certificate, salt, encryption_key)
             )
             self.conn.commit()
             return True
@@ -148,7 +162,7 @@ class Storage:
 
     def get_devices(self, username: str) -> List[Dict[str, Any]]:
         cursor = self.conn.execute(
-            "SELECT id, public_key, certificate, salt, created_at, last_login FROM user_devices WHERE username = ?",
+            "SELECT id, public_key, certificate, encryption_key, salt, created_at, last_login FROM user_devices WHERE username = ? ORDER BY last_login DESC",
             (username,)
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -179,6 +193,14 @@ class Storage:
             (device_id,)
         )
         self.conn.commit()
+
+    def update_device_encryption_key(self, device_id: int, encryption_key: bytes) -> bool:
+        cursor = self.conn.execute(
+            "UPDATE user_devices SET encryption_key = ? WHERE id = ?",
+            (encryption_key, device_id)
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
 
     def delete_device(self, device_id: int) -> bool:
         cursor = self.conn.execute("DELETE FROM user_devices WHERE id = ?", (device_id,))
@@ -218,10 +240,10 @@ class Storage:
     # OFFLINE MESSAGE FUNCTIONS
     def store_offline_message(self, recipient: str, sender: str, content: bytes,
                           nonce: Optional[bytes] = None, tag: Optional[bytes] = None,
-                          device_id: Optional[int] = None) -> int:
+                          device_id: Optional[int] = None, ephemeral_key: Optional[bytes] = None) -> int:
         cursor = self.conn.execute(
-            "INSERT INTO offline_messages (device_id, recipient, sender, encrypted_content, nonce, tag) VALUES (?, ?, ?, ?, ?, ?)",
-            (device_id, recipient, sender, content, nonce, tag)
+            "INSERT INTO offline_messages (device_id, recipient, sender, encrypted_content, nonce, tag, message_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (device_id, recipient, sender, content, nonce, tag, ephemeral_key)
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -229,12 +251,12 @@ class Storage:
     def get_offline_messages(self, recipient: str, device_id: Optional[int] = None) -> List[Dict[str, Any]]:
         if device_id:
             cursor = self.conn.execute(
-                "SELECT id, device_id, sender, encrypted_content, nonce, tag FROM offline_messages WHERE recipient = ? AND device_id = ?",
+                "SELECT id, device_id, sender, encrypted_content, nonce, tag, message_key as ephemeral_key FROM offline_messages WHERE recipient = ? AND device_id = ?",
                 (recipient, device_id)
             )
         else:
             cursor = self.conn.execute(
-                "SELECT id, device_id, sender, encrypted_content, nonce, tag FROM offline_messages WHERE recipient = ?",
+                "SELECT id, device_id, sender, encrypted_content, nonce, tag, message_key as ephemeral_key FROM offline_messages WHERE recipient = ?",
                 (recipient,)
             )
 
@@ -246,14 +268,15 @@ class Storage:
                 "sender": row["sender"],
                 "content": row["encrypted_content"],
                 "nonce": row["nonce"],
-                "tag": row["tag"]
+                "tag": row["tag"],
+                "ephemeral_key": row["ephemeral_key"]
             })
 
         return messages
 
     def get_offline_messages_by_device(self, device_id: int) -> List[Dict[str, Any]]:
         cursor = self.conn.execute(
-            "SELECT id, device_id, sender, encrypted_content, nonce, tag FROM offline_messages WHERE device_id = ?",
+            "SELECT id, device_id, sender, encrypted_content, nonce, tag, message_key as ephemeral_key FROM offline_messages WHERE device_id = ?",
             (device_id,)
         )
 
@@ -265,7 +288,8 @@ class Storage:
                 "sender": row["sender"],
                 "content": row["encrypted_content"],
                 "nonce": row["nonce"],
-                "tag": row["tag"]
+                "tag": row["tag"],
+                "ephemeral_key": row["ephemeral_key"]
             })
 
         return messages

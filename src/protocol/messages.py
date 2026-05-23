@@ -13,6 +13,8 @@ from dataclasses import dataclass, asdict
 
 class MessageType(Enum):
     # Fluxo de Sistema (Client <-> Server)
+    SERVER_HELLO = "server_hello"
+    CLIENT_HELLO = "client_hello"
     REGISTER = "register"
     AUTH = "auth"
     GET_IP = "get_ip"
@@ -32,9 +34,15 @@ class MessageType(Enum):
     OFFLINE_STORE = "off_store"
     OFFLINE_MESSAGES = "offline_messages"
 
+    # Atualização de Segurança
+    UPDATE_KEYS = "update_keys"
+
     # Ratchet (rotação de chaves via servidor)
     RATCHET_REQUEST = "ratchet_request"   # Cliente -> Servidor: pedir novo salt
     RATCHET_SALT = "ratchet_salt"         # Servidor -> Clientes: novo salt gerado
+
+    # Ratchet P2P (directo entre clientes)
+    RATCHET_CONTRIBUTION = "ratchet_contribution"
 
 
 @dataclass

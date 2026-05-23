@@ -8,7 +8,7 @@ import json
 import logging
 import base64
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, Tuple
 
 from protocol.messages import Message, MessageType
@@ -33,9 +33,18 @@ class ClientHandler:
         self.username: Optional[str] = None
         self.running = False
 
+        # Session Security (Directional Keys for Ratchet)
+        self.tx_key: Optional[bytes] = None # Server -> Client
+        self.rx_key: Optional[bytes] = None # Client -> Server
+
     async def handle(self):
         self.running = True
         try:
+            # --- START HANDSHAKE ---
+            if not await self._perform_handshake():
+                logger.error(f"Handshake falhou com {self.address}. A encerrar.")
+                return
+
             while self.running:
                 message_text = await self._receive()
                 if message_text is None:
@@ -54,7 +63,90 @@ class ClientHandler:
         finally:
             await self._handle_disconnect()
 
-    async def _receive(self) -> Optional[str]:
+    async def _perform_handshake(self) -> bool:
+        """Estabelece canal seguro com o cliente."""
+        try:
+            from cryptography.hazmat.primitives.asymmetric import x25519
+            # 1. Gerar chave efémera X25519 do servidor
+            server_eph_priv = x25519.X25519PrivateKey.generate()
+            server_eph_pub = server_eph_priv.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw
+            )
+
+            # 2. Assinar a chave efémera com a identidade do servidor (Ed25519)
+            signature = self.server.ca_priv_key.sign(server_eph_pub)
+
+            # 3. Enviar SERVER_HELLO
+            server_hello = Message(
+                msg_type=MessageType.SERVER_HELLO.value,
+                sender="server",
+                payload={
+                    "pub_key": base64.b64encode(server_eph_pub).decode('utf-8'),
+                    "signature": base64.b64encode(signature).decode('utf-8')
+                }
+            )
+            # Enviar SERVER_HELLO em plaintext
+            await self._send_raw(server_hello.to_json())
+
+            # 4. Receber CLIENT_HELLO
+            client_hello_raw = await self._receive_raw()
+            if not client_hello_raw:
+                return False
+
+            client_hello = Message.from_json(client_hello_raw)
+            if client_hello.msg_type != MessageType.CLIENT_HELLO.value:
+                return False
+
+            client_eph_pub_raw = base64.b64decode(client_hello.payload.get("pub_key"))
+            client_eph_pub = x25519.X25519PublicKey.from_public_bytes(client_eph_pub_raw)
+
+            # 5. Derivar segredo partilhado
+            shared_secret = server_eph_priv.exchange(client_eph_pub)
+
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+            from cryptography.hazmat.primitives import hashes
+
+            # 6. Derivar Master Key
+            hkdf_master = HKDF(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=None,
+                info=b"ServerClientSession"
+            )
+            master_key = hkdf_master.derive(shared_secret)
+
+            # 7. Derivar Chaves Direcionais para o Ratchet
+            # TX (Server -> Client)
+            self.tx_key = HKDF(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=None,
+                info=b"ServerToClient"
+            ).derive(master_key)
+
+            # RX (Client -> Server)
+            self.rx_key = HKDF(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=None,
+                info=b"ClientToServer"
+            ).derive(master_key)
+
+            logger.info(f"[*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com {self.address}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Erro no handshake: {e}")
+            return False
+
+    async def _send_raw(self, message_text: str):
+        data = message_text.encode('utf-8')
+        header = len(data).to_bytes(4, byteorder="big")
+        self.writer.write(header + data)
+        await self.writer.drain()
+
+    async def _receive_raw(self) -> Optional[str]:
         try:
             header = await self.reader.readexactly(4)
             msg_len = int.from_bytes(header, byteorder="big")
@@ -62,6 +154,74 @@ class ClientHandler:
             return data.decode().strip()
         except Exception:
             return None
+
+    async def send_message(self, message: Message):
+        """Envia mensagem (cifrada se a sessão estiver ativa). Aplica Ratchet TX."""
+        json_msg = message.to_json()
+        
+        if self.tx_key:
+            from crypto import symmetric
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+            from cryptography.hazmat.primitives import hashes
+
+            # 1. Encriptar com a chave TX atual
+            ciphertext, nonce, tag = symmetric.encrypt(self.tx_key, json_msg.encode('utf-8'))
+            
+            # 2. Ratchet TX: Gerar próxima chave
+            self.tx_key = HKDF(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=None,
+                info=b"Ratchet"
+            ).derive(self.tx_key)
+
+            encrypted_payload = {
+                "content": base64.b64encode(ciphertext).decode('utf-8'),
+                "nonce": base64.b64encode(nonce).decode('utf-8'),
+                "tag": base64.b64encode(tag).decode('utf-8')
+            }
+            wrapped_msg = Message(msg_type="encrypted", sender="server", payload=encrypted_payload)
+            await self._send_raw(wrapped_msg.to_json())
+        else:
+            await self._send_raw(json_msg)
+
+    async def _receive(self) -> Optional[str]:
+        """Recebe mensagem (desencripta se a sessão estiver ativa). Aplica Ratchet RX."""
+        raw_text = await self._receive_raw()
+        if not raw_text:
+            return None
+
+        if self.rx_key:
+            try:
+                envelope = Message.from_json(raw_text)
+                if envelope.msg_type != "encrypted":
+                    return raw_text
+
+                payload = envelope.payload
+                ciphertext = base64.b64decode(payload["content"])
+                nonce = base64.b64decode(payload["nonce"])
+                tag = base64.b64decode(payload["tag"])
+
+                # 1. Desencriptar com a chave RX atual
+                from crypto import symmetric
+                plaintext = symmetric.decrypt(self.rx_key, ciphertext, nonce, tag)
+                
+                # 2. Ratchet RX: Gerar próxima chave
+                from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+                from cryptography.hazmat.primitives import hashes
+                self.rx_key = HKDF(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=None,
+                    info=b"Ratchet"
+                ).derive(self.rx_key)
+
+                return plaintext.decode('utf-8')
+            except Exception as e:
+                logger.error(f"Falha ao desencriptar pacote do cliente (Ratchet desincronizado?): {e}")
+                return None
+        
+        return raw_text
 
     def _parse_request(self, message_text: str) -> Dict[str, Any]:
         try:
@@ -147,52 +307,62 @@ class ClientHandler:
         if cmd == MessageType.REGISTER.value:
             username = data.get("username") or sender
             password = data.get("password")
-            public_key = data.get("public_key")
-            certificate = data.get("certificate")
+            public_key_pem = data.get("public_key")
+            encryption_key = data.get("encryption_key") # Estática X25519
             salt_b64 = data.get("salt")
 
-            if not username or not password:
-                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Username e password são obrigatórios"}), None, False
+            if not username or not password or not public_key_pem:
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Dados incompletos para registo"}), None, False
 
             existing_user = self.server.storage.get_user(username)
             if existing_user:
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Utilizador já existe"}), None, False
 
-            if public_key:
-                logger.info(f"[*] A validar chave pública para {username}")
-                public_key_bytes = self._ensure_bytes(public_key)
-                if not self._is_ed25519_key(public_key_bytes):
-                    logger.error(f"[!] Chave pública inválida para {username}")
-                    return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Chave pública deve ser Ed25519"}), None, False
+            # Validar chave pública
+            public_key_bytes = self._ensure_bytes(public_key_pem)
+            if not self._is_ed25519_key(public_key_bytes):
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Chave pública deve ser Ed25519"}), None, False
 
-            if certificate and public_key:
-                logger.info(f"[*] A validar certificado para {username}")
-                cert_bytes = self._ensure_bytes(certificate)
-                pub_bytes = self._ensure_bytes(public_key)
-                if not self._validate_certificate(cert_bytes, pub_bytes):
-                    logger.error(f"[!] Certificado inválido para {username}")
-                    return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Certificado inválido ou não corresponde à chave pública"}), None, False
+            # --- SERVIDOR COMO CA: Gerar Certificado para o Utilizador ---
+            try:
+                user_pub_key = load_pem_public_key(public_key_bytes)
+                subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, username)])
+                issuer  = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "SecureP2PChat-CA")])
 
-            salt_bytes = None
-            if salt_b64:
-                try:
-                    salt_bytes = base64.b64decode(salt_b64)
-                except Exception as e:
-                    logger.warning(f"Salt inválido ignorado: {e}")
+                cert = (
+                    x509.CertificateBuilder()
+                    .subject_name(subject)
+                    .issuer_name(issuer)
+                    .public_key(user_pub_key)
+                    .serial_number(x509.random_serial_number())
+                    .not_valid_before(datetime.now(timezone.utc))
+                    .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))
+                    .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+                    .sign(self.server.ca_priv_key, algorithm=None)
+                )
+                cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+                logger.info(f"[*] Certificado emitido pela CA para {username}")
+            except Exception as e:
+                logger.error(f"Erro ao emitir certificado: {e}")
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Erro interno ao emitir certificado"}), None, False
 
-            public_key_bytes = self._ensure_bytes(public_key)
-            cert_bytes = self._ensure_bytes(certificate)
+            salt_bytes = base64.b64decode(salt_b64) if salt_b64 else None
+            enc_key_bytes = self._ensure_bytes(encryption_key) if encryption_key else None
 
             user_created = self.server.storage.create_user(username, password)
             if not user_created:
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Falha ao criar utilizador"}), None, False
 
-            device_added = self.server.storage.add_device(username, public_key_bytes, cert_bytes, salt_bytes)
+            device_added = self.server.storage.add_device(username, public_key_bytes, cert_pem, salt_bytes, encryption_key=enc_key_bytes)
             if not device_added:
                 self.server.storage.delete_user(username)
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Falha ao registar dispositivo"}), None, False
 
-            return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": "Registo efetuado com sucesso"}), None, False
+            return self._build_response(MessageType.RESPONSE, "server", {
+                "status": "success", 
+                "message": "Registo efetuado com sucesso",
+                "certificate": base64.b64encode(cert_pem).decode('utf-8')
+            }), None, False
 
         # 2. LOGIN (AUTH)
         if cmd == MessageType.AUTH.value:
@@ -242,6 +412,7 @@ class ClientHandler:
                     "device_id": self.device_id,
                     "nonce": nonce,
                     "salt": salt_b64,
+                    "encryption_key": base64.b64encode(existing_device["encryption_key"]).decode('utf-8') if existing_device.get("encryption_key") else None,
                     "require_challenge": auth_method == "challenge"
                 }), username, False
 
@@ -282,10 +453,14 @@ class ClientHandler:
 
             devices = self.server.storage.get_devices(target_user)
             pub_key_b64 = None
+            enc_key_b64 = None
             if devices and len(devices) > 0:
                 pub_key_bytes = devices[0].get("public_key")
+                enc_key_bytes = devices[0].get("encryption_key")
                 if pub_key_bytes:
                     pub_key_b64 = base64.b64encode(pub_key_bytes).decode('utf-8')
+                if enc_key_bytes:
+                    enc_key_b64 = base64.b64encode(enc_key_bytes).decode('utf-8')
 
             if address:
                 ip, port = address
@@ -294,7 +469,8 @@ class ClientHandler:
                     "ip": ip,
                     "port": port,
                     "status": "success",
-                    "public_key": pub_key_b64
+                    "public_key": pub_key_b64,
+                    "encryption_key": enc_key_b64
                 }), None, False
 
             return self._build_response(MessageType.IP_RESPONSE, "server", {
@@ -302,10 +478,30 @@ class ClientHandler:
                 "ip": None,
                 "port": None,
                 "status": "offline",
-                "public_key": pub_key_b64
+                "public_key": pub_key_b64,
+                "encryption_key": enc_key_b64
             }), None, False
 
-        # 4. LISTAR UTILIZADORES
+        # 4. ATUALIZAR CHAVES (Rotação X25519)
+        if cmd == MessageType.UPDATE_KEYS.value:
+            if not self.username:
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não autenticado"}), None, False
+
+            encryption_key = data.get("encryption_key")
+            if not encryption_key:
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Chave de encriptação em falta"}), None, False
+
+            enc_key_bytes = self._ensure_bytes(encryption_key)
+            
+            # Atualizar chave de encriptação no dispositivo atual
+            success = self.server.storage.update_device_encryption_key(self.device_id, enc_key_bytes)
+            
+            if success:
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": "Chave de encriptação atualizada"}), None, False
+            else:
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Falha ao atualizar chaves"}), None, False
+
+        # 5. LISTAR UTILIZADORES
         if cmd == MessageType.GET_USERS.value:
             if not self.username:
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não autenticado"}), None, False
@@ -371,6 +567,7 @@ class ClientHandler:
 
                 public_key = data.get("public_key")
                 certificate = data.get("certificate")
+                encryption_key = data.get("encryption_key")
                 salt = data.get("salt")
 
                 if not public_key or not certificate:
@@ -378,6 +575,7 @@ class ClientHandler:
 
                 public_key_bytes = self._ensure_bytes(public_key)
                 cert_bytes = self._ensure_bytes(certificate)
+                enc_key_bytes = self._ensure_bytes(encryption_key) if encryption_key else None
                 salt_bytes = None
                 if salt:
                     try:
@@ -385,7 +583,7 @@ class ClientHandler:
                     except:
                         pass
 
-                added = self.server.storage.add_device(self.username, public_key_bytes, cert_bytes, salt_bytes)
+                added = self.server.storage.add_device(self.username, public_key_bytes, cert_bytes, salt_bytes, encryption_key=enc_key_bytes)
                 if not added:
                     return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Falha ao registar dispositivo"}), None, False
 
@@ -420,21 +618,19 @@ class ClientHandler:
                 mensagens_para_enviar = []
 
                 for m in mensagens_db:
-                    def ensure_str(data):
-                        if data is None:
-                            return ""
+                    # Chaves, nonces e tags DEVEM ser base64
+                    def to_b64(data):
+                        if data is None: return ""
                         if isinstance(data, bytes):
-                            try:
-                                return data.decode('utf-8')
-                            except UnicodeDecodeError:
-                                return base64.b64encode(data).decode('utf-8')
+                            return base64.b64encode(data).decode('utf-8')
                         return str(data)
 
                     payload_msg = {
-                        "sender": m["sender"],
-                        "content": ensure_str(m["content"]),
-                        "nonce": ensure_str(m["nonce"]),
-                        "tag": ensure_str(m["tag"])
+                        "sender":        m["sender"],
+                        "content":       to_b64(m["content"]),
+                        "nonce":         to_b64(m["nonce"]),
+                        "tag":           to_b64(m["tag"]),
+                        "ephemeral_key": to_b64(m["ephemeral_key"])
                     }
                     mensagens_para_enviar.append(payload_msg)
 
@@ -447,22 +643,35 @@ class ClientHandler:
                 ), None, False
 
             elif action == "store":
-                recipient = data.get("recipient")
-                content = data.get("content")
-                nonce = data.get("nonce")
-                tag = data.get("tag")
+                recipient     = data.get("recipient")
+                content       = data.get("content")
+                nonce         = data.get("nonce")
+                tag           = data.get("tag")
+                ephemeral_key = data.get("ephemeral_key")
 
                 if not recipient or not content:
                     return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Dados insuficientes"}), None, False
+
+                # Converter base64 para bytes se necessário
+                def ensure_bytes(val):
+                    if val is None: return None
+                    if isinstance(val, str): return base64.b64decode(val)
+                    return val
+
+                content_bytes = ensure_bytes(content)
+                nonce_bytes   = ensure_bytes(nonce)
+                tag_bytes     = ensure_bytes(tag)
+                key_bytes     = ensure_bytes(ephemeral_key)
 
                 target_devices = self.server.storage.get_devices(recipient)
                 for device in target_devices:
                     self.server.storage.store_offline_message(
                         recipient, sender,
-                        content.encode() if isinstance(content, str) else content,
-                        nonce.encode() if nonce and isinstance(nonce, str) else nonce,
-                        tag.encode() if tag and isinstance(tag, str) else tag,
-                        device_id=device["id"]
+                        content_bytes,
+                        nonce_bytes,
+                        tag_bytes,
+                        device_id=device["id"],
+                        ephemeral_key=key_bytes
                     )
 
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": "Mensagem guardada offline"}), None, False
@@ -482,17 +691,6 @@ class ClientHandler:
             self.username = None
         self.running = False
         await self.close()
-
-    async def send_message(self, message: Message):
-        data = message.to_json().encode("utf-8")
-        self.writer.write(len(data).to_bytes(4, byteorder="big") + data)
-        await self.writer.drain()
-
-    async def send_error(self, error_message: str):
-        await self.send_message(self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": error_message}))
-
-    async def send_success(self, data: Dict[str, Any]):
-        await self.send_message(self._build_response(MessageType.RESPONSE, "server", {"status": "success", **data}))
 
     async def close(self):
         if not self.writer.is_closing():
