@@ -25,6 +25,18 @@ from crypto import symmetric
 logger = logging.getLogger(__name__)
 
 
+def _sec_ok(msg: str):
+    logger.log(25, "[SEC] ✓ %s", msg)   # SECURITY level
+
+
+def _sec_warn(msg: str):
+    logger.warning("[SEC] ⚠ %s", msg)
+
+
+def _sec_err(msg: str):
+    logger.error("[SEC] ✗ %s", msg)
+
+
 class ClientHandler:
     """Gere a comunicação com um único cliente TCP."""
 
@@ -70,6 +82,7 @@ class ClientHandler:
 
     async def _perform_handshake(self) -> bool:
         """Estabelece canal seguro com o cliente (X25519 ECDH + Ed25519)."""
+        logger.debug("Handshake iniciado com %s", self.address)
         try:
             # 1. Gerar chave efémera X25519 do servidor
             server_eph_priv = x25519.X25519PrivateKey.generate()
@@ -120,10 +133,10 @@ class ClientHandler:
             self.tx_key = HKDF(hashes.SHA256(), 32, None, b"ServerToClient").derive(master_key)
             self.rx_key = HKDF(hashes.SHA256(), 32, None, b"ClientToServer").derive(master_key)
 
-            logger.info(f"[*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com {self.address}")
+            _sec_ok(f"HANDSHAKE_OK  protocolo=X25519+AES-256-GCM+Ratchet  addr={self.address}")
             return True
         except Exception as e:
-            logger.error(f"Erro no handshake C-S: {e}")
+            _sec_err(f"HANDSHAKE_FAIL  addr={self.address}  erro={e!r}")
             return False
 
     async def _send_raw(self, message_text: str):
@@ -174,7 +187,7 @@ class ClientHandler:
             self.rx_key = HKDF(hashes.SHA256(), 32, None, b"Ratchet").derive(self.rx_key)
             return plaintext.decode('utf-8')
         except Exception as e:
-            logger.error(f"Falha ao desencriptar pacote (Ratchet desinc?): {e}")
+            _sec_err(f"DECRYPT_FAIL  addr={self.address}  motivo='ratchet_desinc_ou_adulteracao'  erro={e!r}")
             return None
 
     def _parse_request(self, message_text: str) -> Dict[str, Any]:
@@ -233,12 +246,15 @@ class ClientHandler:
             encryption_key = data.get("encryption_key")
             salt_b64 = data.get("salt")
             if not username or not password or not public_key_pem:
+                _sec_warn(f"REGISTER_FAIL  addr={self.address}  motivo='dados_incompletos'")
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Dados incompletos"}), None, False
             if self.server.storage.get_user(username):
+                _sec_warn(f"REGISTER_FAIL  user={username!r}  addr={self.address}  motivo='utilizador_ja_existe'")
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Utilizador já existe"}), None, False
 
             public_key_bytes = self._ensure_bytes(public_key_pem)
             if not self._is_ed25519_key(public_key_bytes):
+                _sec_err(f"REGISTER_FAIL  user={username!r}  addr={self.address}  motivo='chave_nao_e_ed25519'")
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Chave pública deve ser Ed25519"}), None, False
 
             try:
@@ -252,12 +268,14 @@ class ClientHandler:
                     .sign(self.server.ca_priv_key, algorithm=None))
                 cert_pem = cert.public_bytes(serialization.Encoding.PEM)
             except Exception as e:
+                _sec_err(f"CERT_SIGN_FAIL  user={username!r}  addr={self.address}  erro={e!r}")
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": f"Erro CA: {e}"}), None, False
 
             salt_bytes = base64.b64decode(salt_b64) if salt_b64 else None
             enc_key_bytes = self._ensure_bytes(encryption_key) if encryption_key else None
             self.server.storage.create_user(username, password)
             self.server.storage.add_device(username, public_key_bytes, cert_pem, salt_bytes, encryption_key=enc_key_bytes)
+            _sec_ok(f"REGISTER_OK  user={username!r}  addr={self.address}  cert=X.509/Ed25519/365d")
             return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": "Registo OK", "certificate": base64.b64encode(cert_pem).decode('utf-8')}), None, False
 
         # 2. LOGIN
@@ -266,15 +284,20 @@ class ClientHandler:
             password = data.get("password")
             p2p_port = int(data.get("p2p_port", 0) or 0)
             public_key = data.get("public_key")
-            if not username: return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Username obrigatório"}), None, False
+            if not username:
+                _sec_warn(f"AUTH_FAIL  addr={self.address}  motivo='username_ausente'")
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Username obrigatório"}), None, False
             user = self.server.storage.get_user(username)
-            if not user: return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não encontrado"}), None, False
+            if not user:
+                _sec_warn(f"AUTH_FAIL  user={username!r}  addr={self.address}  motivo='utilizador_nao_existe'")
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não encontrado"}), None, False
 
             public_key_bytes = self._ensure_bytes(public_key) if public_key else None
             existing_device = self.server.storage.get_device(username, public_key_bytes) if public_key_bytes else None
 
             if existing_device:
                 if password and user.get("password_hash") != password:
+                    _sec_warn(f"AUTH_FAIL  user={username!r}  addr={self.address}  motivo='password_errada'")
                     return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Password errada"}), None, False
                 self.device_id = existing_device["id"]
                 await self.server.online_users.add_online_user(username, self.address[0], p2p_port, self)
@@ -282,6 +305,7 @@ class ClientHandler:
                 self.nonce = nonce
                 salt = existing_device.get("salt")
                 self.server.storage.update_last_login(self.device_id)
+                _sec_ok(f"AUTH_OK  user={username!r}  addr={self.address}  device_id={self.device_id}  p2p_port={p2p_port}")
 
                 # TreeKEM KeyPackages
                 packages = self.server.storage.get_key_packages_for_user(username)
@@ -299,10 +323,12 @@ class ClientHandler:
 
             # Novo dispositivo
             if password and user.get("password_hash") != password:
+                _sec_warn(f"AUTH_FAIL  user={username!r}  addr={self.address}  motivo='password_errada_novo_disp'")
                 return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Password errada"}), None, False
             await self.server.online_users.add_online_user(username, self.address[0], p2p_port, self)
             self.nonce = base64.b64encode(os.urandom(16)).decode('utf-8')
             self.require_new_device = True
+            _sec_ok(f"AUTH_OK  user={username!r}  addr={self.address}  novo_dispositivo=True")
             return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": "Login OK - Novo disp", "username": username, "require_new_device": True, "nonce": self.nonce}), username, False
 
         # 3. GET_IP
@@ -322,7 +348,9 @@ class ClientHandler:
 
         # 4. UPDATE_KEYS
         if cmd == MessageType.UPDATE_KEYS.value:
-            if not self.username: return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não auth"}), None, False
+            if not self.username:
+                _sec_warn(f"UNAUTHORIZED  cmd={cmd!r}  addr={self.address}  motivo='nao_autenticado'")
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não auth"}), None, False
             enc_key = data.get("encryption_key")
             if not enc_key: return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Falta chave"}), None, False
             self.server.storage.update_device_encryption_key(self.device_id, self._ensure_bytes(enc_key))
@@ -330,7 +358,9 @@ class ClientHandler:
 
         # 5. GET_USERS
         if cmd == MessageType.GET_USERS.value:
-            if not self.username: return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não auth"}), None, False
+            if not self.username:
+                _sec_warn(f"UNAUTHORIZED  cmd={cmd!r}  addr={self.address}  motivo='nao_autenticado'")
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não auth"}), None, False
             users = await self.server.online_users.list_online_users()
             return self._build_response(MessageType.USERS_LIST, "server", {"users": users}), None, False
 
@@ -554,7 +584,11 @@ class ClientHandler:
         return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": f"Desconhecido: {cmd}"}), None, False
 
     async def _handle_disconnect(self):
-        if self.username: await self.server.online_users.remove_online_user(self.username)
+        if self.username:
+            await self.server.online_users.remove_online_user(self.username)
+            _sec_ok(f"DISCONNECT  user={self.username!r}  addr={self.address}")
+        else:
+            logger.info("Conexão encerrada (sem autenticação)  addr=%s", self.address)
         self.running = False
         await self.close()
 

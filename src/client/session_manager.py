@@ -34,7 +34,6 @@ def derive_key_PBKDF2HMAC(password: str, salt: Optional[bytes] = None):
 class SessionManager:
 
     def __init__(self, username: str = None, data_dir: str = "client_data"):
-        print("[DEBUG] SessionManager v12 (P2P Stability) carregado.")
         self.username = username
         self.data_dir = data_dir
         self._ensure_dir()

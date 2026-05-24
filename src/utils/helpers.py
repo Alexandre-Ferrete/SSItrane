@@ -236,37 +236,154 @@ def validate_password(password: str) -> bool:
 # =========================================================================
 
 import logging
+import sys
 
-def setup_logging(level: str = "INFO", log_file: Optional[str] = None):
+# --- ANSI colour codes ---------------------------------------------------
+_RESET   = "\033[0m"
+_BOLD    = "\033[1m"
+_RED     = "\033[31m"
+_GREEN   = "\033[32m"
+_YELLOW  = "\033[33m"
+_CYAN    = "\033[36m"
+_MAGENTA = "\033[35m"
+_WHITE   = "\033[37m"
+
+_LEVEL_COLORS: dict = {
+    "DEBUG":    _CYAN,
+    "INFO":     _WHITE,
+    "WARNING":  _YELLOW,
+    "ERROR":    _BOLD + _RED,
+    "CRITICAL": _BOLD + _RED,
+    "SECURITY": _BOLD + _MAGENTA,
+}
+
+# Custom level between INFO (20) and WARNING (30) — security events
+SECURITY_LEVEL = 25
+logging.addLevelName(SECURITY_LEVEL, "SECURITY")
+
+
+def _security_log(self: logging.Logger, msg: str, *args, **kwargs):
+    if self.isEnabledFor(SECURITY_LEVEL):
+        self._log(SECURITY_LEVEL, msg, args, **kwargs)
+
+logging.Logger.security = _security_log  # type: ignore[attr-defined]
+
+
+def _enable_ansi_windows():
+    """Enable VT100 escape codes on Windows consoles — no-op elsewhere."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            k = ctypes.windll.kernel32
+            k.SetConsoleMode(k.GetStdHandle(-11), 7)
+        except Exception:
+            pass
+
+
+class _ColorFormatter(logging.Formatter):
+    """Console formatter with per-level ANSI colours."""
+
+    _BASE = "%(asctime)s {c}[%(levelname)-8s]{r}  %(name)s — %(message)s"
+
+    def __init__(self):
+        super().__init__(datefmt="%H:%M:%S")
+
+    def format(self, record: logging.LogRecord) -> str:
+        c = _LEVEL_COLORS.get(record.levelname, _WHITE)
+        fmt = self._BASE.format(c=c, r=_RESET)
+        return logging.Formatter(fmt, datefmt="%H:%M:%S").format(record)
+
+
+class _SecurityFilter(logging.Filter):
+    """Passes only records tagged with [SEC] — routes them to security.log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "[SEC]" in record.getMessage()
+
+
+def setup_logging(
+    level: str = "INFO",
+    log_file: Optional[str] = None,
+    security_log_file: Optional[str] = None,
+    colored: bool = True,
+) -> None:
     """
-    Setup logging configuration (console or file).
+    Configure application-wide logging.
+
     Args:
-        level: Logging level ("DEBUG", "INFO", etc.)
-        log_file: Optional log file path
+        level:             Root log level ('DEBUG', 'INFO', 'WARNING', …).
+        log_file:          Path for the full application log (UTF-8).
+        security_log_file: Path for a security-only log; only messages tagged
+                           [SEC] are written here.
+        colored:           Use ANSI colours on the console (default True).
     """
+    if colored:
+        _enable_ansi_windows()
+
     numeric_level = getattr(logging, level.upper(), logging.INFO)
-    handlers = []
-    formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
-    if log_file is not None:
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(formatter)
-        handlers.append(file_handler)
-    else:
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(formatter)
-        handlers.append(stream_handler)
-    logging.basicConfig(level=numeric_level, handlers=handlers, force=True)
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)   # individual handlers filter by level
+    root.handlers.clear()
+
+    # Console handler
+    console = logging.StreamHandler()
+    console.setLevel(numeric_level)
+    console.setFormatter(
+        _ColorFormatter() if colored else
+        logging.Formatter(
+            "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root.addHandler(console)
+
+    # Full application log file
+    if log_file:
+        fh = logging.FileHandler(log_file, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)-8s] %(name)s:%(lineno)d — %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        root.addHandler(fh)
+
+    # Security-only log file (filtered to [SEC] messages)
+    if security_log_file:
+        sh = logging.FileHandler(security_log_file, encoding="utf-8")
+        sh.setLevel(logging.DEBUG)
+        sh.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)-8s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        sh.addFilter(_SecurityFilter())
+        root.addHandler(sh)
 
 
-def get_logger(name: str):
-    """
-    Get logger for module.
-    Args:
-        name: Logger name (__name__)
-    Returns:
-        Logger instance
-    """
+def get_logger(name: str) -> logging.Logger:
+    """Return a named logger."""
     return logging.getLogger(name)
+
+
+# --- Security-aware print helpers (client CLI) ---------------------------
+
+def sec_ok(msg: str) -> str:
+    """Green bold prefix for security success."""
+    return f"{_BOLD}{_GREEN}[SEGURANÇA ✓]{_RESET} {msg}"
+
+
+def sec_warn(msg: str) -> str:
+    """Yellow bold prefix for security warnings."""
+    return f"{_BOLD}{_YELLOW}[SEGURANÇA ⚠]{_RESET}  {msg}"
+
+
+def sec_err(msg: str) -> str:
+    """Red bold prefix for security errors."""
+    return f"{_BOLD}{_RED}[SEGURANÇA ✗]{_RESET}  {msg}"
+
+
+def sec_info(msg: str) -> str:
+    """Cyan prefix for security info."""
+    return f"{_CYAN}[SEGURANÇA ℹ]{_RESET}  {msg}"
 
 
 # =========================================================================

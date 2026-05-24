@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from protocol.messages import Message, MessageType
 from client.session_manager import SessionManager, derive_key_PBKDF2HMAC
 from crypto import symmetric
+from utils.helpers import sec_ok, sec_warn, sec_err, sec_info
 
 
 class ChatClient:
@@ -108,7 +109,7 @@ class ChatClient:
             self.running = True
             threading.Thread(target=self._server_receive_loop, daemon=True).start()
             return True
-        except Exception as e: print(f"[!] Erro ao ligar ao servidor: {e}"); return False
+        except Exception as e: print(sec_err(f"Erro ao ligar ao servidor: {e}")); return False
 
     def _perform_server_handshake(self) -> bool:
         try:
@@ -125,7 +126,8 @@ class ChatClient:
             master = HKDF(hashes.SHA256(), 32, None, b"ServerClientSession").derive(my_eph_priv.exchange(x25519.X25519PublicKey.from_public_bytes(spub_raw)))
             self.server_tx_key = HKDF(hashes.SHA256(), 32, None, b"ClientToServer").derive(master)
             self.server_rx_key = HKDF(hashes.SHA256(), 32, None, b"ServerToClient").derive(master)
-            print("[*] Canal seguro com o servidor estabelecido.")
+            print(sec_ok("Canal seguro com o servidor estabelecido."))
+            print(sec_info("Protocolo: X25519 ECDH + AES-256-GCM + HKDF Ratchet (PFS activo)"))
             return True
         except: return False
 
@@ -168,7 +170,7 @@ class ChatClient:
                         msg.payload["signature"],
                         msg.payload["cert"]
                     ):
-                        print(f"[!] Handshake inválido de {peer}")
+                        print(sec_err(f"Handshake P2P inválido de '{peer}' — certificado ou assinatura rejeitados"))
                         break
 
                     already_has_session = (
@@ -190,14 +192,14 @@ class ChatClient:
                         # Somos o iniciador: processar a resposta do peer
                         self.session_manager.process_peer_handshake(peer, msg.payload["pub_key"])
                         self.peer_sessions[peer] = {"socket": sock, "session_ready": True}
-                        print(f"[*] Sessão P2P com {peer} estabelecida (iniciador).")
+                        print(sec_ok(f"Sessão P2P cifrada com '{peer}' estabelecida (ECDH+AES-GCM)."))
                     else:
                         # Somos o recetor: responder com o nosso P2P_HELLO
                         h_data = self.session_manager.get_handshake_data(peer)
                         self.session_manager.process_peer_handshake(peer, msg.payload["pub_key"])
                         self._send_packet(sock, Message(MessageType.P2P_HELLO.value, self.username, h_data))
                         self.peer_sessions[peer] = {"socket": sock, "session_ready": True}
-                        print(f"[*] Sessão P2P com {peer} estabelecida (recetor).")
+                        print(sec_ok(f"Sessão P2P cifrada com '{peer}' estabelecida (ECDH+AES-GCM)."))
 
                     # Enviar mensagem pendente se existir
                     if peer in self.pending_chats:
@@ -220,12 +222,12 @@ class ChatClient:
                     )
                     if new_key:
                         self.session_manager.active_sessions[peer] = new_key
-                        print(f"[*] Ratchet P2P concluído com {peer}.")
+                        print(sec_ok(f"Ratchet P2P concluído com '{peer}' — nova chave de sessão derivada."))
                         if reply:
                             self._send_packet(sock, Message(MessageType.RATCHET_CONTRIBUTION.value, self.username, reply))
 
         except Exception as e:
-            print(f"[!] Erro na conexão P2P com {peer}: {e}")
+            print(sec_err(f"Erro na conexão P2P com '{peer}': {e}"))
             traceback.print_exc()
         finally:
             if peer:
@@ -246,7 +248,7 @@ class ChatClient:
             h_data = self.session_manager.get_handshake_data(username)
             self._send_packet(sock, Message(MessageType.P2P_HELLO.value, self.username, h_data))
             threading.Thread(target=self._handle_peer_connection, args=(sock, (ip, port)), daemon=True).start()
-        except Exception as e: print(f"[!] Erro ao ligar a {username}: {e}")
+        except Exception as e: print(sec_err(f"Erro ao ligar a '{username}': {e}"))
 
     def _server_receive_loop(self):
         while self.running:
@@ -273,19 +275,20 @@ class ChatClient:
                                 self.session_manager.identity_cert = cert_pem
                                 cert_path = os.path.join(self.session_manager.data_dir, f"{user}_cert.pem")
                                 with open(cert_path, "wb") as f: f.write(cert_pem)
-                                print(f"[*] Certificado CA guardado para {user}.")
+                                print(sec_ok(f"Certificado X.509 (Ed25519, CA) emitido e guardado para '{user}'."))
                         if "Login OK" in texto:
                             self.username = msg.payload["username"]; self.session_manager.set_username(self.username)
                             if msg.payload.get("salt"):
                                 salt = base64.b64decode(msg.payload["salt"]); self.session_manager.set_salt(salt)
                                 if self.session_manager._temp_password: self.iden_kdf, _ = derive_key_PBKDF2HMAC(self.session_manager._temp_password, salt)
                             if not self.session_manager.load_identity_keys(self.iden_kdf, self.username):
-                                print("[!] Erro: Falha ao carregar chaves."); self.running = False; return
+                                print(sec_err("Falha ao carregar chaves de identidade.")); self.running = False; return
                             for gk in msg.payload.get("group_keys", []): self.session_manager.process_key_package(gk["room_name"], gk["epoch"], gk["encrypted_blob"], self.iden_kdf)
-                            print(f"\n[*] SUCESSO: {texto}"); self.should_rotate_offline_key = True
+                            print(sec_ok(f"Autenticado como '{self.username}' — sessão E2EE activa."))
+                            self.should_rotate_offline_key = True
                             self._send_packet(self.server_socket, Message(MessageType.OFFLINE_STORE.value, self.username, {"action": "get"}))
                         else: print(f"\n[*] SUCESSO: {texto}")
-                    else: print(f"\n[*] ERRO: {texto}")
+                    else: print(sec_warn(f"Resposta de erro: {texto}"))
                     # Handle being removed from a group
                     if msg.payload.get("removed_from_group"):
                         room = msg.payload["removed_from_group"]
@@ -395,19 +398,27 @@ class ChatClient:
                     if self.should_rotate_offline_key and self.iden_kdf:
                         self._send_packet(self.server_socket, Message(MessageType.UPDATE_KEYS.value, self.username, {"encryption_key": base64.b64encode(self.session_manager.rotate_encryption_key(self.iden_kdf)).decode('utf-8')}))
                         self.should_rotate_offline_key = False
+                        print(sec_ok("Chave de cifra offline rotacionada (nova chave X25519 derivada)."))
                 elif msg.msg_type == MessageType.USERS_LIST.value: print(f"[*] Online: {msg.payload.get('users')}")
                 elif msg.msg_type == MessageType.GROUP_LIST.value: print(f"[*] Teus Grupos: {msg.payload.get('groups')}")
-            except Exception as e: print(f"[!] Erro no loop de receção: {e}"); traceback.print_exc()
+            except Exception as e: print(sec_err(f"Erro no loop de receção: {e}")); traceback.print_exc()
 
     def _initiate_ratchet(self, peer: str):
-        print(f"[*] A iniciar Ratchet P2P com {peer}...")
+        print(sec_info(f"Ratchet P2P iniciado com '{peer}' (rotação de chave de sessão)..."))
         contrib = self.session_manager.generate_ratchet_contribution(peer)
         if peer in self.peer_sessions: self._send_packet(self.peer_sessions[peer]["socket"], Message(MessageType.RATCHET_CONTRIBUTION.value, self.username, contrib))
 
     def stop(self): self.running = False; self.server_socket.close()
 
     def run_cli(self):
-        print("\n=== SECURE P2P CHAT (v12.2) ===")
+        print("\n" + "=" * 60)
+        print("  SECURE P2P CHAT  (v12.2)")
+        print("=" * 60)
+        print(sec_info("Cifra P2P    : AES-256-GCM + Salt Ratchet (cada ~5 msgs)"))
+        print(sec_info("Cifra C-S    : AES-256-GCM + HKDF Hash Ratchet"))
+        print(sec_info("Autenticação : Ed25519 + Certificados X.509 verificados pela CA"))
+        print(sec_info("Msgs offline : ECDH efémero — servidor nunca vê plaintext"))
+        print("=" * 60 + "\n")
         while self.running:
             try:
                 raw = input(f"[{self.username or 'Anonimo'}] > ").strip()

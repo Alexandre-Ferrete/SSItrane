@@ -10,20 +10,19 @@ from .user_manager import OnlineUserManager
 from .tcp_handler import ClientHandler
 from .server_keys_generator import generate_server_keys, load_server_pubkey, load_server_privkey
 from .message_router import MessageRouter
+from utils.helpers import setup_logging, get_logger
 
-log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-os.makedirs(log_dir, exist_ok=True)
-log_file = os.path.join(log_dir, "server.log")
+_src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_log_dir = os.path.join(_src_dir, "logs")
+os.makedirs(_log_dir, exist_ok=True)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
+setup_logging(
+    level="INFO",
+    log_file=os.path.join(_log_dir, "server.log"),
+    security_log_file=os.path.join(_log_dir, "security.log"),
+    colored=True,
 )
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ChatServer:
@@ -60,6 +59,15 @@ class ChatServer:
             )
 
             addr = self.server.sockets[0].getsockname()
+            logger.info("=" * 60)
+            logger.info("[SEC] ✓ SERVIDOR SEGURO INICIALIZADO")
+            logger.info("[SEC] ✓ Troca de chaves : X25519 ECDH (efémero por sessão)")
+            logger.info("[SEC] ✓ Cifra           : AES-256-GCM + HKDF Ratchet (PFS)")
+            logger.info("[SEC] ✓ Autenticação    : Ed25519 + Certificados X.509 (CA)")
+            logger.info("[SEC] ✓ Passwords       : PBKDF2-SHA256 (480 000 iterações)")
+            logger.info("[SEC] ✓ Msgs offline    : ECDH efémero + AES-256-GCM (E2EE)")
+            logger.info(f"[SEC] ✓ Logs segurança : {os.path.join(_log_dir, 'security.log')}")
+            logger.info("=" * 60)
             logger.info(f"[*] Servidor à escuta em {addr}")
             return True
 
@@ -70,7 +78,7 @@ class ChatServer:
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info('peername')
-        logger.info(f"[+] Nova conexão: {addr}")
+        logger.info(f"[SEC] ✓ CONEXÃO  addr={addr}")
         handler = ClientHandler(reader, writer, self)
         await handler.handle()
 
@@ -80,7 +88,7 @@ class ChatServer:
             self.server.close()
             await self.server.wait_closed()
         self.storage.close()
-        logger.info("[*] Recursos libertados.")
+        logger.info("[SEC] Servidor encerrado. Recursos libertados.")
 
 
 async def main():
