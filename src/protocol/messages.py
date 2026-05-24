@@ -34,6 +34,17 @@ class MessageType(Enum):
     OFFLINE_STORE = "off_store"
     OFFLINE_MESSAGES = "offline_messages"
 
+    # Grupos (TreeKEM)
+    GROUP_CREATE = "group_create"
+    GROUP_INIT = "group_init"
+    GROUP_ADD_MEMBER = "group_add"
+    GROUP_REMOVE_MEMBER = "group_remove"
+    GROUP_UPDATE = "group_update"
+    GROUP_KEY_PACKAGE = "group_key_package"
+    GROUP_MSG = "group_msg"
+    GROUP_LIST = "group_list"
+    GROUP_INFO = "group_info"
+
     # Atualização de Segurança
     UPDATE_KEYS = "update_keys"
 
@@ -61,8 +72,22 @@ class Message:
 
     @classmethod
     def from_json(cls, json_str: str):
-        data = json.loads(json_str)
-        return cls(**data)
+        try:
+            data = json.loads(json_str)
+            # Suportar tanto 'msg_type' como 'type' (legado)
+            m_type = data.get("msg_type") or data.get("type") or "unknown"
+            m_sender = data.get("sender") or "unknown"
+            m_payload = data.get("payload") or data.get("data") or {}
+            
+            return cls(
+                msg_type=m_type,
+                sender=m_sender,
+                payload=m_payload,
+                timestamp=data.get("timestamp")
+            )
+        except Exception as e:
+            print(f"[DEBUG] Erro ao decifrar JSON: {e} | Conteúdo: {json_str[:100]}")
+            return None
 
 
 def create_register_msg(username, pwd_hash, pub_key) -> Message:

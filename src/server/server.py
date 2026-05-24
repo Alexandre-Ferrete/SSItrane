@@ -3,9 +3,11 @@ import logging
 import signal
 import os
 import sys
+import traceback
 
 from .storage import Storage
 from .user_manager import OnlineUserManager
+from .message_router import MessageRouter
 from .tcp_handler import ClientHandler
 from .server_keys_generator import generate_server_keys, load_server_pubkey, load_server_privkey
 
@@ -35,30 +37,38 @@ class ChatServer:
     async def start(self):
         import os
         password = os.environ.get("SERVER_PASSWORD") or input("Defina a password para o servidor: ")
+        logger.info(f"[*] Tentativa de arranque com password_env={os.environ.get('SERVER_PASSWORD') is not None}")
         if password != "server":
-            print("[!] Password incorreta. Encerrando.")
+            logger.error("[!] Password incorreta. Encerrando.")
             sys.exit(1)
+        
         """Inicializa storage e arranca o servidor."""
         ca_identity = os.path.join(self.keys_dir, "ca_identity.key")
         ca_public = os.path.join(self.keys_dir, "ca_public.key")
-        if os.path.exists(ca_identity) and os.path.exists(ca_public):
-            logger.info("[*] Chaves do servidor já existem. A carregar...")
-            self.ca_priv_key = load_server_privkey(ca_identity, password)
-            self.ca_pub_key = load_server_pubkey(ca_public)
-        else:
-            logger.info("[*] Chaves do servidor não encontradas. A gerar novas chaves...")
-            generate_server_keys(password, ca_identity, ca_public)
-            self.ca_priv_key = load_server_privkey(ca_identity, password)
-            self.ca_pub_key = load_server_pubkey(ca_public)
-
-        self.storage.initialize()
-        self.server = await asyncio.start_server(self.handle_client, self.host, self.port)
         
-        addr = self.server.sockets[0].getsockname()
-        logger.info(f"[*] Servidor à escuta em {addr}")
+        try:
+            if os.path.exists(ca_identity) and os.path.exists(ca_public):
+                logger.info("[*] Chaves do servidor já existem. A carregar...")
+                self.ca_priv_key = load_server_privkey(ca_identity, password)
+                self.ca_pub_key = load_server_pubkey(ca_public)
+            else:
+                logger.info("[*] Chaves do servidor não encontradas. A gerar novas chaves...")
+                generate_server_keys(password, ca_identity, ca_public)
+                self.ca_priv_key = load_server_privkey(ca_identity, password)
+                self.ca_pub_key = load_server_pubkey(ca_public)
 
-        async with self.server:
-            await self.server.serve_forever()
+            self.storage.initialize()
+            self.router = MessageRouter(self.online_users, self.storage)
+            self.server = await asyncio.start_server(self.handle_client, self.host, self.port)
+            
+            addr = self.server.sockets[0].getsockname()
+            logger.info(f"[*] Servidor à escuta em {addr}")
+
+            async with self.server:
+                await self.server.serve_forever()
+        except Exception as e:
+            logger.error(f"[!] Erro fatal no arranque do servidor: {e}")
+            traceback.print_exc()
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Gere a ligação de cada cliente."""

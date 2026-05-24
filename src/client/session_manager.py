@@ -1,19 +1,22 @@
 import os
 import json
 import base64
-import utils.helpers as help
-from typing import Optional, Dict, Any, Tuple
+import hashlib
+import math
+import traceback
+from typing import Optional, Dict, Any, Tuple, List
 from datetime import datetime, timedelta, timezone
+
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey, Ed25519PrivateKey
 from cryptography.exceptions import InvalidSignature
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 
+from crypto import symmetric
 
 def derive_key_PBKDF2HMAC(password: str, salt: Optional[bytes] = None):
     if salt is None:
@@ -31,30 +34,23 @@ def derive_key_PBKDF2HMAC(password: str, salt: Optional[bytes] = None):
 class SessionManager:
 
     def __init__(self, username: str = None, data_dir: str = "client_data"):
+        print("[DEBUG] SessionManager v12 (P2P Stability) carregado.")
         self.username = username
         self.data_dir = data_dir
         self._ensure_dir()
 
-        # Identity Key (Ed25519 - Signatures)
-        self.identity_pub_key: Optional[Ed25519PublicKey] = None
-        self.identity_cert: Optional[bytes] = None
+        self.identity_priv_key: Optional[Ed25519PrivateKey] = None
+        self.identity_pub_key:  Optional[Ed25519PublicKey]  = None
+        self.identity_cert:     Optional[bytes] = None
 
-        # Static Encryption Key (X25519 - Offline Messages)
         self.encryption_priv_key: Optional[x25519.X25519PrivateKey] = None
-        self.encryption_pub_key: Optional[x25519.X25519PublicKey] = None
+        self.encryption_pub_key:  Optional[x25519.X25519PublicKey]  = None
 
-        # Current secure sessions (AES-GCM keys)
         self.active_sessions: Dict[str, bytes] = {}
-
-        # Cache of peer public keys (X25519)
-        self.peer_public_keys: Dict[str, bytes] = {}
-
-        # Cache of peer encryption keys (X25519) for offline messages
-        self.peer_encryption_keys: Dict[str, bytes] = {}
-
-        # Temporary storage for ephemeral keys during handshake
+        self.group_states:    Dict[str, Dict[str, Any]] = {}
+        
         self.pending_ephemeral_priv_keys: Dict[str, bytes] = {}
-        self.pending_ratchet_salt: Dict[str, bytes] = {}
+        self.pending_ratchet_salt:         Dict[str, bytes] = {}
 
         self._salt = None
         self._temp_password = None
@@ -66,571 +62,400 @@ class SessionManager:
     def set_username(self, username: str):
         self.username = username
         self._ensure_dir()
-        print(f"[*] SessionManager configurado para: {username}")
 
     def set_password(self, password: str):
         self._temp_password = password
 
     def set_salt(self, salt):
-        if isinstance(salt, bytes):
-            self._salt = salt
+        if isinstance(salt, bytes): self._salt = salt
         else:
-            try:
-                self._salt = base64.b64decode(salt)
-            except:
-                self._salt = None
-
+            try: self._salt = base64.b64decode(salt)
+            except: self._salt = None
         if self.username and self._salt:
             try:
-                salt_path = os.path.join(self.data_dir, f"{self.username}.salt")
-                with open(salt_path, "wb") as f:
-                    f.write(self._salt)
-            except Exception as e:
-                print(f"[!] Erro ao guardar salt: {e}")
+                with open(os.path.join(self.data_dir, f"{self.username}.salt"), "wb") as f: f.write(self._salt)
+            except: pass
 
     # ==========================================
-    # 1. CHAVES DE IDENTIDADE E ENCRIPTAÇÃO
+    # 1. GESTÃO DE CHAVES
     # ==========================================
 
     def load_or_generate_identity_keys(self, password_kdf: bytes, user: str) -> str:
         self.set_username(user)
-        if not self.username:
-            raise ValueError("Username não pode ser vazio")
-        if not password_kdf:
-            raise ValueError("password_kdf não pode ser vazio")
-
-        # Ed25519 Identity Keys
         priv_path = os.path.join(self.data_dir, f"{user}_priv.pem")
-        pub_path  = os.path.join(self.data_dir, f"{user}_pub.pem")
-        cert_path = os.path.join(self.data_dir, f"{user}_cert.pem")
+        if os.path.exists(priv_path):
+            if self.load_identity_keys(password_kdf, user):
+                return self.get_public_key_pem()
 
-        # X25519 Encryption Keys
-        enc_priv_path = os.path.join(self.data_dir, f"{user}_enc_priv.pem")
-        enc_pub_path  = os.path.join(self.data_dir, f"{user}_enc_pub.pem")
-
-        if os.path.exists(priv_path) and os.path.exists(pub_path):
-            try:
-                with open(priv_path, "rb") as f:
-                    serialization.load_pem_private_key(f.read(), password=password_kdf)
-                with open(pub_path, "rb") as f:
-                    self.identity_pub_key = serialization.load_pem_public_key(f.read())
-                print("[*] Chaves de identidade Ed25519 carregadas")
-            except ValueError as e:
-                if "Bad decrypt" in str(e):
-                    print("[!] Password incorreta para chaves de identidade.")
-                    return None
-                else:
-                    raise
-
-        if not os.path.exists(priv_path):
-            print("[*] A gerar novo par de chaves Ed25519...")
-            if os.path.exists(cert_path): os.remove(cert_path)
-            priv_key = ed25519.Ed25519PrivateKey.generate()
-            self.identity_pub_key = priv_key.public_key()
-
-            priv_pem = priv_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.BestAvailableEncryption(password_kdf)
-            )
-            pub_pem = self.identity_pub_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
-            with open(priv_path, "wb") as f: f.write(priv_pem)
-            with open(pub_path, "wb") as f: f.write(pub_pem)
-
-        # Tratar chaves de encriptação X25519
-        if os.path.exists(enc_priv_path):
-            try:
-                with open(enc_priv_path, "rb") as f:
-                    self.encryption_priv_key = serialization.load_pem_private_key(f.read(), password=password_kdf)
-                with open(enc_pub_path, "rb") as f:
-                    self.encryption_pub_key = serialization.load_pem_public_key(f.read())
-                print("[*] Chaves de encriptação X25519 carregadas")
-            except Exception:
-                print("[!] Falha ao carregar chaves X25519, a gerar novas...")
-                if os.path.exists(enc_priv_path): os.remove(enc_priv_path)
-
-        if not os.path.exists(enc_priv_path):
-            print("[*] A gerar novo par de chaves X25519...")
+        print(f"[*] A gerar novas chaves para {user}...")
+        try:
+            self.identity_priv_key = ed25519.Ed25519PrivateKey.generate()
+            self.identity_pub_key  = self.identity_priv_key.public_key()
             self.encryption_priv_key = x25519.X25519PrivateKey.generate()
-            self.encryption_pub_key = self.encryption_priv_key.public_key()
-            
-            enc_priv_pem = self.encryption_priv_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.BestAvailableEncryption(password_kdf)
-            )
-            enc_pub_pem = self.encryption_pub_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
-            with open(enc_priv_path, "wb") as f: f.write(enc_priv_pem)
-            with open(enc_pub_path, "wb") as f: f.write(enc_pub_pem)
-
-        # Certificado
-        if os.path.exists(cert_path):
-            with open(cert_path, "rb") as f:
-                self.identity_cert = f.read()
-        else:
-            pub_pem = self.identity_pub_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
+            self.encryption_pub_key  = self.encryption_priv_key.public_key()
+            self._save_keys_to_disk(password_kdf, user)
+            pub_pem = self.get_public_key_pem().encode('utf-8')
             self.identity_cert = self._generate_self_signed_cert(user, pub_pem, password_kdf)
-            with open(cert_path, "wb") as f: f.write(self.identity_cert)
-
-        pub_pem = self.identity_pub_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-        return base64.b64encode(pub_pem).decode("utf-8")
+            return self.get_public_key_pem()
+        except Exception:
+            traceback.print_exc()
+            return ""
 
     def load_identity_keys(self, password_kdf: bytes, user: str) -> bool:
-        """Lê chaves e certificado do disco se existirem."""
         self.set_username(user)
         priv_path = os.path.join(self.data_dir, f"{user}_priv.pem")
-        pub_path  = os.path.join(self.data_dir, f"{user}_pub.pem")
-        cert_path = os.path.join(self.data_dir, f"{user}_cert.pem")
         enc_priv_path = os.path.join(self.data_dir, f"{user}_enc_priv.pem")
-
-        if not os.path.exists(priv_path) or not os.path.exists(pub_path):
-            print(f"[DEBUG] Chaves de identidade não encontradas em {priv_path}")
-            return False
-
+        if not os.path.exists(priv_path) or not os.path.exists(enc_priv_path): return False
         try:
-            with open(pub_path, "rb") as f:
-                self.identity_pub_key = serialization.load_pem_public_key(f.read())
+            with open(priv_path, "rb") as f:
+                self.identity_priv_key = serialization.load_pem_private_key(f.read(), password=password_kdf)
+            self.identity_pub_key = self.identity_priv_key.public_key()
+            with open(enc_priv_path, "rb") as f:
+                self.encryption_priv_key = serialization.load_pem_private_key(f.read(), password=password_kdf)
+            self.encryption_pub_key = self.encryption_priv_key.public_key()
+            cert_path = os.path.join(self.data_dir, f"{user}_cert.pem")
             if os.path.exists(cert_path):
-                with open(cert_path, "rb") as f:
-                    self.identity_cert = f.read()
-            
-            # Tentar carregar X25519 se a password_kdf for fornecida
-            if password_kdf and os.path.exists(enc_priv_path):
-                with open(enc_priv_path, "rb") as f:
-                    self.encryption_priv_key = serialization.load_pem_private_key(f.read(), password=password_kdf)
-                
-                import hashlib
-                k_hash = hashlib.sha256(self.encryption_priv_key.public_key().public_bytes(
-                    encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
-                )).hexdigest()[:8]
-                print(f"[*] Chave de encriptação carregada (Hash: {k_hash})")
-
-                enc_pub_path = os.path.join(self.data_dir, f"{user}_enc_pub.pem")
-                if os.path.exists(enc_pub_path):
-                    with open(enc_pub_path, "rb") as f:
-                        self.encryption_pub_key = serialization.load_pem_public_key(f.read())
-            else:
-                print(f"[DEBUG] X25519 não carregada. iden_kdf={password_kdf is not None}, exists={os.path.exists(enc_priv_path)}")
-            
+                with open(cert_path, "rb") as f: self.identity_cert = f.read()
+            self._load_group_states(password_kdf)
             return True
         except Exception as e:
-            print(f"[!] Erro ao carregar chaves de {user}: {e}")
+            print(f"[!] Falha ao desencriptar chaves de {user}: {e}")
             return False
 
-    def rotate_encryption_key(self, password_kdf: bytes) -> bytes:
-        """Gera um novo par de chaves X25519 e guarda no disco."""
-        if not self.username:
-            raise ValueError("Username não definido")
-        
-        print(f"[*] A rotacionar chave de encriptação X25519 para {self.username}...")
-        
-        enc_priv_path = os.path.join(self.data_dir, f"{self.username}_enc_priv.pem")
-        enc_pub_path  = os.path.join(self.data_dir, f"{self.username}_enc_pub.pem")
+    def _save_keys_to_disk(self, password_kdf: bytes, user: str):
+        paths = {
+            f"{user}_priv.pem": (self.identity_priv_key, serialization.PrivateFormat.PKCS8),
+            f"{user}_pub.pem":  (self.identity_pub_key, serialization.PublicFormat.SubjectPublicKeyInfo),
+            f"{user}_enc_priv.pem": (self.encryption_priv_key, serialization.PrivateFormat.PKCS8),
+            f"{user}_enc_pub.pem":  (self.encryption_pub_key, serialization.PublicFormat.SubjectPublicKeyInfo)
+        }
+        for name, (key, fmt) in paths.items():
+            if key is None: continue
+            path = os.path.join(self.data_dir, name)
+            with open(path, "wb") as f:
+                if isinstance(fmt, serialization.PrivateFormat):
+                    f.write(key.private_bytes(serialization.Encoding.PEM, fmt, serialization.BestAvailableEncryption(password_kdf)))
+                else:
+                    f.write(key.public_bytes(serialization.Encoding.PEM, fmt))
 
+    def _save_group_states(self, password_kdf: bytes):
+        if not self.username or not password_kdf: return
+        try:
+            serializable = {}
+            for room, state in self.group_states.items():
+                serializable[room] = {
+                    "epoch": state["epoch"], "my_leaf_index": state["my_leaf_index"], "total_leaves": state["total_leaves"],
+                    "group_key": base64.b64encode(state["group_key"]).decode('utf-8'),
+                    "tree_priv_keys": {str(k): base64.b64encode(v).decode('utf-8') for k,v in state["tree_priv_keys"].items()},
+                    "tree_pub_keys": {str(k): base64.b64encode(v).decode('utf-8') for k,v in state["tree_pub_keys"].items()},
+                    "members_cache": state.get("members_cache", [])
+                }
+            c, n, t = symmetric.encrypt(password_kdf, json.dumps(serializable).encode('utf-8'))
+            with open(os.path.join(self.data_dir, f"{self.username}_groups.json.enc"), "wb") as f: f.write(n + t + c)
+        except: pass
+
+    def _load_group_states(self, password_kdf: bytes):
+        path = os.path.join(self.data_dir, f"{self.username}_groups.json.enc")
+        if not os.path.exists(path): return
+        try:
+            with open(path, "rb") as f:
+                raw = f.read()
+                if len(raw) < 28: return
+                n, t, c = raw[:12], raw[12:28], raw[28:]
+            plaintext = symmetric.decrypt(password_kdf, c, n, t)
+            data = json.loads(plaintext.decode('utf-8'))
+            for room, s in data.items():
+                self.group_states[room] = {
+                    "epoch": s["epoch"], "my_leaf_index": s["my_leaf_index"], "total_leaves": s["total_leaves"],
+                    "group_key": base64.b64decode(s["group_key"]),
+                    "tree_priv_keys": {int(k): base64.b64decode(v) for k,v in s["tree_priv_keys"].items()},
+                    "tree_pub_keys": {int(k): base64.b64decode(v) for k,v in s["tree_pub_keys"].items()},
+                    "members_cache": s.get("members_cache", [])
+                }
+        except: pass
+
+    def rotate_encryption_key(self, password_kdf: bytes) -> bytes:
+        if not self.username: raise ValueError("Username não definido")
         self.encryption_priv_key = x25519.X25519PrivateKey.generate()
         self.encryption_pub_key = self.encryption_priv_key.public_key()
-        
-        enc_priv_pem = self.encryption_priv_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.BestAvailableEncryption(password_kdf)
-        )
-        enc_pub_pem = self.encryption_pub_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-        
-        with open(enc_priv_path, "wb") as f: f.write(enc_priv_pem)
-        with open(enc_pub_path, "wb") as f: f.write(enc_pub_pem)
-        
+        self._save_keys_to_disk(password_kdf, self.username)
         return self.get_encryption_key_raw()
 
     def get_encryption_key_raw(self) -> bytes:
-        if not self.encryption_pub_key:
-            return None
-        return self.encryption_pub_key.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw
-        )
+        return self.encryption_pub_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw) if self.encryption_pub_key else None
 
-    def _generate_self_signed_cert(self, username: str, public_key_pem: bytes, password_kdf: bytes = None) -> bytes:
-        public_key = serialization.load_pem_public_key(public_key_pem)
+    def _generate_self_signed_cert(self, username: str, public_key_pem: bytes, password_kdf: bytes) -> bytes:
         subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, username)])
-
-        priv_path = os.path.join(self.data_dir, f"{username}_priv.pem")
-        with open(priv_path, "rb") as f:
-            priv_key = serialization.load_pem_private_key(f.read(), password=password_kdf)
-
-        cert = (
-            x509.CertificateBuilder()
-            .subject_name(subject)
-            .issuer_name(issuer)
-            .public_key(public_key)
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.now(timezone.utc))
+        cert = (x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(self.identity_pub_key)
+            .serial_number(x509.random_serial_number()).not_valid_before(datetime.now(timezone.utc))
             .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))
             .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-            .add_extension(
-                x509.KeyUsage(
-                    digital_signature=True, key_encipherment=True,
-                    key_cert_sign=False, crl_sign=False, content_commitment=False,
-                    data_encipherment=False, key_agreement=False,
-                    encipher_only=False, decipher_only=False
-                ), critical=True
-            )
-            .sign(priv_key, algorithm=None)
-        )
-
-        cert_pem  = cert.public_bytes(serialization.Encoding.PEM)
-        cert_path = os.path.join(self.data_dir, f"{username}_cert.pem")
-        with open(cert_path, "wb") as f:
-            f.write(cert_pem)
-
-        self.identity_cert = cert_pem
-        return cert_pem
+            .sign(self.identity_priv_key, algorithm=None))
+        self.identity_cert = cert.public_bytes(serialization.Encoding.PEM)
+        with open(os.path.join(self.data_dir, f"{username}_cert.pem"), "wb") as f: f.write(self.identity_cert)
+        return self.identity_cert
 
     def get_certificate(self) -> str:
-        if not self.identity_cert:
-            raise ValueError("Certificate not generated.")
-        return base64.b64encode(self.identity_cert).decode("utf-8")
+        return base64.b64encode(self.identity_cert).decode("utf-8") if self.identity_cert else ""
 
     def get_public_key_pem(self) -> str:
-        if not self.identity_pub_key:
-            raise ValueError("Public key not loaded.")
-        return self.identity_pub_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode("utf-8")
+        return self.identity_pub_key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode("utf-8") if self.identity_pub_key else ""
 
     def get_salt(self) -> bytes:
-        local_salt_path = os.path.join(self.data_dir, f"{self.username}.salt")
-        if os.path.exists(local_salt_path):
-            with open(local_salt_path, "rb") as f:
-                return f.read()
-        return self._salt
+        if self._salt: return self._salt
+        try:
+            with open(os.path.join(self.data_dir, f"{self.username}.salt"), "rb") as f: return f.read()
+        except: return None
 
     def sign_with_identity_key(self, data: bytes) -> bytes:
-        """Carrega chave privada temporariamente, assina e descarta."""
-        priv_path = os.path.join(self.data_dir, f"{self.username}_priv.pem")
-
-        local_salt_path = os.path.join(self.data_dir, f"{self.username}.salt")
-        if os.path.exists(local_salt_path):
-            with open(local_salt_path, "rb") as f:
-                local_salt = f.read()
-        elif self._salt:
-            local_salt = self._salt
-        else:
-            raise ValueError(f"Salt não encontrado para {self.username}")
-
-        password_kdf = derive_key_PBKDF2HMAC(self._temp_password, local_salt)[0]
-
-        with open(priv_path, "rb") as f:
-            priv_key = serialization.load_pem_private_key(f.read(), password=password_kdf)
-
-        return priv_key.sign(data)
+        if not self.identity_priv_key: raise ValueError("Chave de identidade não carregada")
+        return self.identity_priv_key.sign(data)
 
     # ==========================================
-    # 2. HANDSHAKE P2P (X25519 ECDH + Ed25519)
+    # 2. HANDSHAKE P2P & RATCHET
     # ==========================================
 
-    def get_handshake_data(self, peer_username: str) -> dict:
-        """
-        Gera chave efémera X25519 e assina-a com Ed25519.
-        Devolve dict com pub_key, signature e cert.
-        """
-        eph_priv_key = x25519.X25519PrivateKey.generate()
-        eph_pub_raw  = eph_priv_key.public_key().public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw
-        )
-        
-        self.pending_ephemeral_priv_keys[peer_username] = eph_priv_key.private_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PrivateFormat.Raw,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-
-        signature = self.sign_with_identity_key(eph_pub_raw)
-
-        return {
-            "pub_key":   base64.b64encode(eph_pub_raw).decode('utf-8'),
-            "signature": base64.b64encode(signature).decode('utf-8'),
-            "cert":      base64.b64encode(self.identity_cert).decode('utf-8') if self.identity_cert else None,
-        }
-
-    def verify_peer_handshake(self, peer_username: str, pub_key_b64: str,
-                               signature_b64: str, cert_b64: str) -> bool:
-        """
-        Verifica a assinatura Ed25519 sobre a chave efémera X25519 do peer.
-        Guarda o certificado em cache para uso posterior (ratchet, etc).
-        """
+    def get_handshake_data(self, peer: str) -> dict:
         try:
-            eph_pub_raw = base64.b64decode(pub_key_b64)
-            signature   = base64.b64decode(signature_b64)
-            cert_pem    = base64.b64decode(cert_b64)
+            eph = x25519.X25519PrivateKey.generate()
+            self.pending_ephemeral_priv_keys[peer] = eph.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+            pub = eph.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            return {"pub_key": base64.b64encode(pub).decode('utf-8'), "signature": base64.b64encode(self.sign_with_identity_key(pub)).decode('utf-8'), "cert": self.get_certificate()}
+        except Exception:
+            traceback.print_exc()
+            return {}
 
-            cert = x509.load_pem_x509_certificate(cert_pem)
-            peer_identity_pub = cert.public_key()
-
-            if not isinstance(peer_identity_pub, Ed25519PublicKey):
-                print(f"[!] Certificado de {peer_username} não contém chave Ed25519")
-                return False
-
-            peer_identity_pub.verify(signature, eph_pub_raw)
-
-            # Guardar certificado em cache local para o ratchet verificar depois
-            cert_cache_path = os.path.join(self.data_dir, f"{peer_username}_cert.pem")
-            with open(cert_cache_path, "wb") as f:
-                f.write(cert_pem)
-
-            print(f"[*] Assinatura do handshake de {peer_username} verificada")
+    def verify_peer_handshake(self, peer: str, pub_b64: str, sig_b64: str, cert_b64: str) -> bool:
+        if not pub_b64 or not sig_b64 or not cert_b64: return False
+        try:
+            pub, sig, cert_pem = base64.b64decode(pub_b64), base64.b64decode(sig_b64), base64.b64decode(cert_b64)
+            x509.load_pem_x509_certificate(cert_pem).public_key().verify(sig, pub)
+            with open(os.path.join(self.data_dir, f"{peer}_cert.pem"), "wb") as f: f.write(cert_pem)
             return True
+        except: return False
 
-        except InvalidSignature:
-            print(f"[!!!] AVISO DE SEGURANÇA: Assinatura inválida no handshake de {peer_username}! Possível MITM.")
-            return False
-        except Exception as e:
-            print(f"[!] Erro na verificação do handshake de {peer_username}: {e}")
-            return False
-
-    def process_peer_handshake(self, peer_username: str, peer_pub_key_b64: str):
-        """Deriva a chave de sessão ECDH após verificação da assinatura."""
+    def process_peer_handshake(self, peer: str, pub_b64: str):
         try:
-            peer_pub_raw    = base64.b64decode(peer_pub_key_b64)
-            my_eph_priv_raw = self.pending_ephemeral_priv_keys.pop(peer_username, None)
+            raw = self.pending_ephemeral_priv_keys.pop(peer, None)
+            if not raw: return
+            shared = x25519.X25519PrivateKey.from_private_bytes(raw).exchange(x25519.X25519PublicKey.from_public_bytes(base64.b64decode(pub_b64)))
+            self.active_sessions[peer] = HKDF(hashes.SHA256(), 32, None, b"P2PChat").derive(shared)
+        except: traceback.print_exc()
 
-            if not my_eph_priv_raw:
-                print(f"[Erro] Chave efémera não encontrada para {peer_username}")
-                return
-
-            my_priv_key   = x25519.X25519PrivateKey.from_private_bytes(my_eph_priv_raw)
-            peer_pub_key  = x25519.X25519PublicKey.from_public_bytes(peer_pub_raw)
-            shared_secret = my_priv_key.exchange(peer_pub_key)
-            
-            # HKDF: Derivar chave de 32 bytes
-            hkdf = HKDF(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=None,
-                info=b"P2PChat",
-            )
-            session_key = hkdf.derive(shared_secret)
-
-            self.active_sessions[peer_username]  = session_key
-            self.peer_public_keys[peer_username] = peer_pub_raw
-
-            print(f"[*] Sessão X25519 estabelecida com {peer_username}")
-
-        except Exception as e:
-            print(f"[Erro] Handshake X25519 falhou: {e}")
-
-    # ==========================================
-    # 3. RATCHET COM SALT CONTRIBUÍDO PELOS CLIENTES
-    # ==========================================
-
-    def generate_ratchet_contribution(self, peer_username: str) -> dict:
-        """
-        Gera novo salt contribution (16 bytes) e assina com a chave de identidade.
-        Guarda localmente em pending_ratchet_salt.
-        """
-        my_salt = os.urandom(16)
-        self.pending_ratchet_salt[peer_username] = my_salt
-
-        signature = self.sign_with_identity_key(my_salt)
-
-        return {
-            "salt_contribution": base64.b64encode(my_salt).decode('utf-8'),
-            "signature":         base64.b64encode(signature).decode('utf-8'),
-        }
-
-    def verify_and_apply_ratchet(self, peer_username: str,
-                                  peer_salt_b64: str, peer_sig_b64: str) -> Tuple[Optional[bytes], Optional[dict]]:
-        """
-        Recebe a contribuição de salt do peer e verifica a assinatura.
-        Devolve (nova_chave, reply_contribution).
-        """
-        if peer_username not in self.active_sessions:
-            print(f"[Erro] Não há sessão ativa com {peer_username}")
-            return None, None
-
-        # Verificar se fomos nós a iniciar
-        my_salt = self.pending_ratchet_salt.pop(peer_username, None)
-        reply_contribution = None
-
-        if not my_salt:
-            # Recetor: gera seu salt agora
+    def generate_ratchet_contribution(self, peer: str) -> dict:
+        try:
             my_salt = os.urandom(16)
-            signature = self.sign_with_identity_key(my_salt)
-            reply_contribution = {
-                "salt_contribution": base64.b64encode(my_salt).decode('utf-8'),
-                "signature":         base64.b64encode(signature).decode('utf-8'),
-            }
+            self.pending_ratchet_salt[peer] = my_salt
+            return {"salt_contribution": base64.b64encode(my_salt).decode('utf-8'), "signature": base64.b64encode(self.sign_with_identity_key(my_salt)).decode('utf-8')}
+        except: return {}
 
+    def verify_and_apply_ratchet(self, peer: str, ps: str, psig: str) -> Tuple[Optional[bytes], Optional[dict]]:
+        if peer not in self.active_sessions: return None, None
+        my_salt, reply = self.pending_ratchet_salt.pop(peer, None), None
+        if not my_salt:
+            my_salt = os.urandom(16)
+            reply = {"salt_contribution": base64.b64encode(my_salt).decode('utf-8'), "signature": base64.b64encode(self.sign_with_identity_key(my_salt)).decode('utf-8')}
         try:
-            peer_salt = base64.b64decode(peer_salt_b64)
-            peer_sig  = base64.b64decode(peer_sig_b64)
-
-            cert_cache_path = os.path.join(self.data_dir, f"{peer_username}_cert.pem")
-            with open(cert_cache_path, "rb") as f:
-                peer_cert = x509.load_pem_x509_certificate(f.read())
-
-            peer_pub = peer_cert.public_key()
-            peer_pub.verify(peer_sig, peer_salt)
-
-        except Exception as e:
-            print(f"[!!!] Erro de segurança no ratchet de {peer_username}: {e}")
-            return None, None
-
-        # Derivação determinística
-        names = sorted([self.username, peer_username])
-        combined = my_salt + peer_salt if names[0] == self.username else peer_salt + my_salt
-
-        digest = hashes.Hash(hashes.SHA256())
-        digest.update(combined)
-        final_salt = digest.finalize()
-
-        current_key = self.active_sessions[peer_username]
-        hkdf = HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=final_salt,
-            info=b"P2PChatRatchet",
-        )
-        new_key = hkdf.derive(current_key)
-        
-        # O cliente é que vai chamar self.active_sessions[peer] = new_key
-        return new_key, reply_contribution
+            ps_b, psig_b = base64.b64decode(ps), base64.b64decode(psig)
+            with open(os.path.join(self.data_dir, f"{peer}_cert.pem"), "rb") as f:
+                x509.load_pem_x509_certificate(f.read()).public_key().verify(psig_b, ps_b)
+            u_names = sorted([self.username or "anon", peer])
+            combined = my_salt + ps_b if u_names[0] == (self.username or "anon") else ps_b + my_salt
+            new_key = HKDF(hashes.SHA256(), 32, hashlib.sha256(combined).digest(), b"P2PChatRatchet").derive(self.active_sessions[peer])
+            return new_key, reply
+        except: return None, None
 
     # ==========================================
-    # 4. ENCRIPTAÇÃO DE MENSAGENS (AES-GCM)
+    # 3. ENCRIPTAÇÃO
     # ==========================================
 
-    def encrypt_for_peer(self, peer_username: str, plaintext: str) -> Optional[Dict[str, str]]:
-        if peer_username not in self.active_sessions:
-            print(f"[Erro] Não há sessão segura com {peer_username}")
-            return None
-
-        from crypto import symmetric
-        session_key     = self.active_sessions[peer_username]
-        plaintext_bytes = plaintext.encode('utf-8')
-        ciphertext, nonce, tag = symmetric.encrypt(session_key, plaintext_bytes)
-
-        return {
-            "content": base64.b64encode(ciphertext).decode('utf-8'),
-            "nonce":   base64.b64encode(nonce).decode('utf-8'),
-            "tag":     base64.b64encode(tag).decode('utf-8')
-        }
-
-    def decrypt_from_peer(self, peer_username: str, payload: dict) -> Optional[str]:
-        if peer_username not in self.active_sessions:
-            print(f"[Erro] Não há sessão com {peer_username}")
-            return None
-
+    def encrypt_for_peer(self, peer: str, text: str) -> Optional[dict]:
+        if peer not in self.active_sessions: return None
         try:
-            from crypto import symmetric
-            session_key = self.active_sessions[peer_username]
-            ciphertext  = base64.b64decode(payload["content"])
-            nonce       = base64.b64decode(payload["nonce"])
-            tag         = base64.b64decode(payload["tag"])
+            c, n, t = symmetric.encrypt(self.active_sessions[peer], text.encode('utf-8'))
+            return {"content": base64.b64encode(c).decode('utf-8'), "nonce": base64.b64encode(n).decode('utf-8'), "tag": base64.b64encode(t).decode('utf-8')}
+        except: return None
 
-            return symmetric.decrypt(session_key, ciphertext, nonce, tag).decode('utf-8')
-
-        except Exception as e:
-            print(f"[Erro] Desencriptação falhou: {e}")
-            return None
-
-    # ==========================================
-    # 5. MENSAGENS OFFLINE (SECURE - EPHEMERAL-STATIC ECDH)
-    # ==========================================
-
-    def encrypt_offline(self, recipient_enc_key_b64: str, plaintext: str) -> dict:
-        """
-        Alice encripta mensagem para Bob (offline) usando a chave estática X25519 de Bob.
-        Gera uma chave efémera X25519 para Alice e deriva segredo via ECDH.
-        """
+    def decrypt_from_peer(self, peer: str, payload: dict) -> Optional[str]:
+        if peer not in self.active_sessions: return None
         try:
-            recipient_pub_raw = base64.b64decode(recipient_enc_key_b64)
-            recipient_pub = x25519.X25519PublicKey.from_public_bytes(recipient_pub_raw)
+            return symmetric.decrypt(self.active_sessions[peer], base64.b64decode(payload["content"]), base64.b64decode(payload["nonce"]), base64.b64decode(payload["tag"])).decode('utf-8')
+        except: return None
 
-            # Alice gera efémera
-            my_eph_priv = x25519.X25519PrivateKey.generate()
-            my_eph_pub  = my_eph_priv.public_key().public_bytes(
-                encoding=serialization.Encoding.Raw,
-                format=serialization.PublicFormat.Raw
-            )
-
-            # Derivar chave
-            shared_secret = my_eph_priv.exchange(recipient_pub)
-            hkdf = HKDF(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=None,
-                info=b"OfflineSecureMessage"
-            )
-            session_key = hkdf.derive(shared_secret)
-
-            # Encriptar
-            from crypto import symmetric
-            ciphertext, nonce, tag = symmetric.encrypt(session_key, plaintext.encode('utf-8'))
-
-            return {
-                "content":       base64.b64encode(ciphertext).decode('utf-8'),
-                "nonce":         base64.b64encode(nonce).decode('utf-8'),
-                "tag":           base64.b64encode(tag).decode('utf-8'),
-                "ephemeral_key": base64.b64encode(my_eph_pub).decode('utf-8')
-            }
-        except Exception as e:
-            print(f"[Erro] Encriptação offline segura falhou: {e}")
-            return None
+    def encrypt_offline(self, pub_b64: str, text: str) -> dict:
+        try:
+            my_eph = x25519.X25519PrivateKey.generate()
+            shared = my_eph.exchange(x25519.X25519PublicKey.from_public_bytes(base64.b64decode(pub_b64)))
+            key = HKDF(hashes.SHA256(), 32, None, b"OfflineSecureMessage").derive(shared)
+            c, n, t = symmetric.encrypt(key, text.encode('utf-8'))
+            return {"content": base64.b64encode(c).decode('utf-8'), "nonce": base64.b64encode(n).decode('utf-8'), "tag": base64.b64encode(t).decode('utf-8'), "ephemeral_key": base64.b64encode(my_eph.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode('utf-8')}
+        except: return {}
 
     def decrypt_offline(self, m: dict) -> str:
-        """
-        Bob desencripta mensagem offline usando a sua chave estática X25519
-        e a chave efémera da Alice contida no payload.
-        """
         try:
-            if not self.encryption_priv_key:
-                return "(Erro: Chave de encriptação não carregada)"
+            if not self.encryption_priv_key: return "(Erro: Chave não carregada)"
+            shared = self.encryption_priv_key.exchange(x25519.X25519PublicKey.from_public_bytes(base64.b64decode(m["ephemeral_key"])))
+            key = HKDF(hashes.SHA256(), 32, None, b"OfflineSecureMessage").derive(shared)
+            return symmetric.decrypt(key, base64.b64decode(m["content"]), base64.b64decode(m["nonce"]), base64.b64decode(m["tag"])).decode('utf-8')
+        except: return "(Erro ao desencriptar)"
 
-            eph_pub_raw = base64.b64decode(m["ephemeral_key"])
-            eph_pub     = x25519.X25519PublicKey.from_public_bytes(eph_pub_raw)
+    # ==========================================
+    # 4. TREEKEM
+    # ==========================================
 
-            # Bob usa a sua chave privada estática
-            import hashlib
-            my_pub_hash = hashlib.sha256(self.encryption_priv_key.public_key().public_bytes(
-                encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
-            )).hexdigest()[:8]
-            print(f"[*] A desencriptar com a minha chave privada (PubHash: {my_pub_hash})")
+    def _get_path(self, idx: int) -> List[int]:
+        path = []
+        while idx > 1:
+            idx //= 2
+            path.append(idx)
+        return path
 
-            shared_secret = self.encryption_priv_key.exchange(eph_pub)
-            hkdf = HKDF(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=None,
-                info=b"OfflineSecureMessage"
-            )
-            session_key = hkdf.derive(shared_secret)
+    def derive_group_key(self, root_secret: bytes, epoch: int) -> bytes:
+        return HKDF(hashes.SHA256(), 32, epoch.to_bytes(4, 'big'), b"GroupKey").derive(root_secret)
 
-            # Desencriptar
-            from crypto import symmetric
-            ciphertext = base64.b64decode(m["content"])
-            nonce      = base64.b64decode(m["nonce"])
-            tag        = base64.b64decode(m["tag"])
+    def initialize_tree_as_creator(self, room: str, members: List[Dict[str, str]], password_kdf: bytes) -> dict:
+        try:
+            n = len(members)
+            if n == 0: return {}
+            depth = math.ceil(math.log2(n))
+            total_leaves = 2**depth
+            tree_pub, tree_priv = {}, {}
+            my_idx = 0
+            for i, m in enumerate(members):
+                idx = total_leaves + i
+                pub_raw = base64.b64decode(m['enc_pub_key'])
+                tree_pub[idx] = pub_raw
+                if m['username'] == self.username:
+                    my_idx = idx
+                    tree_priv[idx] = self.encryption_priv_key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
 
-            return symmetric.decrypt(session_key, ciphertext, nonce, tag).decode('utf-8')
+            curr = my_idx
+            while curr > 1:
+                parent = curr // 2
+                priv = x25519.X25519PrivateKey.generate()
+                tree_priv[parent] = priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+                tree_pub[parent] = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+                curr = parent
 
-        except Exception as e:
-            print(f"[!!!] Erro na desencriptação offline: {type(e).__name__}: {e}")
-            return "(Erro ao desencriptar mensagem offline)"
+            pkgs = []
+            for i, m in enumerate(members):
+                if m['username'] == self.username: continue
+                idx = total_leaves + i
+                secrets = {str(k): base64.b64encode(v).decode('utf-8') for k,v in tree_priv.items() if k in self._get_path(idx)}
+                blob = self.encrypt_group_key_for_member(json.dumps({"leaf_index": idx, "total_leaves": total_leaves, "path_secrets": secrets}).encode('utf-8'), m['enc_pub_key'])
+                pkgs.append({"username": m['username'], "encrypted_blob": blob})
+
+            self.group_states[room] = {"epoch": 0, "my_leaf_index": my_idx, "tree_priv_keys": tree_priv, "tree_pub_keys": tree_pub, "total_leaves": total_leaves, "group_key": self.derive_group_key(tree_priv[1], 0), "members_cache": [m['username'] for m in members]}
+            self._save_group_states(password_kdf)
+            return {"room_name": room, "total_leaves": total_leaves, "public_tree": {str(k): base64.b64encode(v).decode('utf-8') for k,v in tree_pub.items()}, "key_packages": pkgs}
+        except Exception:
+            traceback.print_exc()
+            return {}
+
+    def encrypt_group_key_for_member(self, data: bytes, pub_b64: str) -> dict:
+        try:
+            pub = x25519.X25519PublicKey.from_public_bytes(base64.b64decode(pub_b64))
+            eph = x25519.X25519PrivateKey.generate()
+            key = HKDF(hashes.SHA256(), 32, None, b"GroupKeyDistribution").derive(eph.exchange(pub))
+            c, n, t = symmetric.encrypt(key, data)
+            return {"content": base64.b64encode(c).decode('utf-8'), "nonce": base64.b64encode(n).decode('utf-8'), "tag": base64.b64encode(t).decode('utf-8'), "ephemeral_key": base64.b64encode(eph.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode('utf-8')}
+        except: return {}
+
+    def process_key_package(self, room: str, epoch: int, blob: dict, password_kdf: bytes) -> bool:
+        if room in self.group_states and self.group_states[room]["epoch"] >= epoch: return True
+        try:
+            eph_pub = x25519.X25519PublicKey.from_public_bytes(base64.b64decode(blob["ephemeral_key"]))
+            key = HKDF(hashes.SHA256(), 32, None, b"GroupKeyDistribution").derive(self.encryption_priv_key.exchange(eph_pub))
+            plaintext = symmetric.decrypt(key, base64.b64decode(blob["content"]), base64.b64decode(blob["nonce"]), base64.b64decode(blob["tag"]))
+            data = json.loads(plaintext.decode('utf-8'))
+            t_priv = {int(k): base64.b64decode(v) for k,v in data["path_secrets"].items()}
+            my_idx = data["leaf_index"]
+            t_priv[my_idx] = self.encryption_priv_key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+            self.group_states[room] = {"epoch": epoch, "my_leaf_index": my_idx, "tree_priv_keys": t_priv, "tree_pub_keys": {}, "total_leaves": data["total_leaves"], "group_key": self.derive_group_key(t_priv[1], epoch)}
+            self._save_group_states(password_kdf)
+            return True
+        except: return False
+
+    def encrypt_for_group(self, room: str, text: str) -> Optional[dict]:
+        if room not in self.group_states: return None
+        try:
+            c, n, t = symmetric.encrypt(self.group_states[room]["group_key"], text.encode('utf-8'))
+            return {"room_name": room, "epoch": self.group_states[room]["epoch"], "content": base64.b64encode(c).decode('utf-8'), "nonce": base64.b64encode(n).decode('utf-8'), "tag": base64.b64encode(t).decode('utf-8')}
+        except: return None
+
+    def decrypt_from_group(self, room: str, epoch: int, payload: dict) -> Optional[str]:
+        if room not in self.group_states: return None
+        state = self.group_states[room]
+        if epoch != state["epoch"]: return f"(Epoch mismatch: {epoch} != {state['epoch']})"
+        try:
+            return symmetric.decrypt(state["group_key"], base64.b64decode(payload["content"]), base64.b64decode(payload["nonce"]), base64.b64decode(payload["tag"])).decode('utf-8')
+        except Exception as e: return f"(Erro de decifração: {e})"
+
+    def add_member_to_tree(self, room: str, new_user: str, new_user_enc_pub_b64: str, password_kdf: bytes) -> dict:
+        if room not in self.group_states: return {}
+        try:
+            state = self.group_states[room]
+            members = state.get("members_cache", [self.username])
+            if new_user in members: return {}
+            
+            # Cálculo de novo leaf_index (MLS simplificado)
+            new_leaf_idx = state["total_leaves"] + len(members)
+            if new_leaf_idx >= state["total_leaves"] * 2:
+                # Expansão: total_leaves deve dobrar
+                state["total_leaves"] *= 2
+            
+            state["tree_pub_keys"][new_leaf_idx] = base64.b64decode(new_user_enc_pub_b64)
+            my_idx = state["my_leaf_index"]
+            new_leaf_priv = x25519.X25519PrivateKey.generate()
+            state["tree_priv_keys"][my_idx] = new_leaf_priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+            state["tree_pub_keys"][my_idx] = new_leaf_priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            
+            path, updates, curr_idx = self._get_path(my_idx), {}, my_idx
+            for parent in path:
+                new_priv = x25519.X25519PrivateKey.generate()
+                state["tree_priv_keys"][parent] = new_priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+                state["tree_pub_keys"][parent] = new_priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+                sibling = curr_idx ^ 1
+                if sibling in state["tree_pub_keys"]:
+                    shared = x25519.X25519PrivateKey.from_private_bytes(state["tree_priv_keys"][curr_idx]).exchange(x25519.X25519PublicKey.from_public_bytes(state["tree_pub_keys"][sibling]))
+                    key = HKDF(hashes.SHA256(), 32, None, f"TreeUpdate:{parent}".encode()).derive(shared)
+                    c, n, t = symmetric.encrypt(key, state["tree_priv_keys"][parent])
+                    updates[str(parent)] = {"from_node": curr_idx, "content": base64.b64encode(c).decode('utf-8'), "nonce": base64.b64encode(n).decode('utf-8'), "tag": base64.b64encode(t).decode('utf-8')}
+                curr_idx = parent
+
+            state["epoch"] += 1
+            state["group_key"] = self.derive_group_key(state["tree_priv_keys"][1], state["epoch"])
+            members.append(new_user); state["members_cache"] = members
+            self._save_group_states(password_kdf)
+            
+            secrets = {str(k): base64.b64encode(v).decode('utf-8') for k,v in state["tree_priv_keys"].items() if k in self._get_path(new_leaf_idx)}
+            blob = self.encrypt_group_key_for_member(json.dumps({"leaf_index": new_leaf_idx, "total_leaves": state["total_leaves"], "path_secrets": secrets}).encode('utf-8'), new_user_enc_pub_b64)
+            
+            return {"room_name": room, "username": new_user, "epoch": state["epoch"], "total_leaves": state["total_leaves"], "public_tree": {str(k): base64.b64encode(v).decode('utf-8') for k,v in state["tree_pub_keys"].items()}, "key_packages": [{"username": new_user, "encrypted_blob": blob, "leaf_index": new_leaf_idx}], "path_updates": updates}
+        except:
+            traceback.print_exc()
+            return {}
+
+    def process_tree_update(self, room: str, payload: dict, password_kdf: bytes) -> bool:
+        if room not in self.group_states: return False
+        try:
+            state = self.group_states[room]
+            state["tree_pub_keys"].update({int(k): base64.b64decode(v) for k,v in payload["public_keys"].items()})
+            if "total_leaves" in payload: state["total_leaves"] = payload["total_leaves"]
+            if "members" in payload: state["members_cache"] = payload["members"]
+            
+            curr, path, updates = state["my_leaf_index"], self._get_path(state["my_leaf_index"]), payload.get("path_updates", {})
+            for parent in path:
+                upd = updates.get(str(parent))
+                if upd and upd.get("from_node") == (curr ^ 1):
+                    shared = x25519.X25519PrivateKey.from_private_bytes(state["tree_priv_keys"][curr]).exchange(x25519.X25519PublicKey.from_public_bytes(state["tree_pub_keys"][upd["from_node"]]))
+                    key = HKDF(hashes.SHA256(), 32, None, f"TreeUpdate:{parent}".encode()).derive(shared)
+                    state["tree_priv_keys"][parent] = symmetric.decrypt(key, base64.b64decode(upd["content"]), base64.b64decode(upd["nonce"]), base64.b64decode(upd["tag"]))
+                curr = parent
+            state["epoch"] = payload["new_epoch"]
+            if 1 in state["tree_priv_keys"]:
+                state["group_key"] = self.derive_group_key(state["tree_priv_keys"][1], state["epoch"])
+                self._save_group_states(password_kdf)
+                return True
+            return False
+        except: return False

@@ -1,122 +1,76 @@
 # Routeia mensagens entre utilizadores e gere rooms de chat
 # Entrega imediata a online ou guarda offline via storage
-# Notifica contactos de mudanças de estado online/offline
 
 import logging
-import threading
+import base64
+import json
 from typing import Optional, List, Dict, Any
+from protocol.messages import Message, MessageType
 
+logger = logging.getLogger(__name__)
 
 class MessageRouter:
     """
-    Routes messages between users.
-    Coordinates P2P connections via IP lookup.
+    Routes messages between users and manages group broadcasts.
     """
     
     def __init__(self, user_manager, storage):
         """Inicializa o router com user_manager e storage."""
-        # self.user_manager = user_manager
-        # self.storage = storage
-        # self._rooms = {}  # room_name -> {members: [], created_by: str}
-        # self._lock = threading.Lock()
-        pass
+        self.user_manager = user_manager
+        self.storage = storage
     
-    def route_message(
+    async def broadcast_to_room(
         self,
+        group_name: str,
         sender: str,
-        recipient: str,
-        encrypted_content: bytes,
-        message_id: str,
-        ephemeral_public_key: bytes = None,
-        nonce: bytes = None,
-        tag: bytes = None
-    ) -> Dict[str, Any]:
-        """Routeia mensagem para destinatário (notifica para usar P2P)."""
-        # 1. Verificar se destinatário está online
-        # 2. Se online: deliver_to_online()
-        # 3. Se offline: store_offline()
-        # 4. Retornar status
-        pass
-    
-    def deliver_to_online(self, recipient: str, message: Dict[str, Any]) -> bool:
-        """Entrega mensagem a utilizador online."""
-        # handler = user_manager.get_handler(recipient)
-        # handler.send_message(message)
-        # return True/False
-        pass
-    
-    def store_offline(
-        self,
-        recipient: str,
-        sender: str,
-        encrypted_content: bytes,
-        message_id: str,
-        ephemeral_public_key: bytes = None,
-        nonce: bytes = None,
-        tag: bytes = None
-    ):
-        """Guarda mensagem para entrega posterior."""
-        # storage.store_offline_message(...)
-        pass
-    
-    def deliver_pending_offline_messages(self, username: str, handler):
-        """Entrega mensagens offline ao utilizador no login."""
-        # msgs = storage.get_offline_messages(username)
-        # for msg in msgs:
-        #     handler.send_message(msg)
-        #     storage.mark_offline_message_delivered(msg["id"])
-        pass
-    
-    def create_room(self, room_name: str, created_by: str) -> Dict[str, Any]:
-        """Cria novo room de chat."""
-        # Com lock: verificar se existe, criar entrada no dicionário
-        pass
-    
-    def delete_room(self, room_name: str) -> bool:
-        """Elimina room de chat."""
-        pass
-    
-    def join_room(self, room_name: str, username: str) -> Dict[str, Any]:
-        """Adiciona utilizador a um room."""
-        pass
-    
-    def leave_room(self, room_name: str, username: str) -> bool:
-        """Remove utilizador de um room."""
-        pass
-    
-    def broadcast_to_room(
-        self,
-        room_name: str,
-        sender: str,
-        encrypted_content: bytes,
-        message_id: str,
-        ephemeral_public_key: bytes = None,
-        nonce: bytes = None,
-        tag: bytes = None
-    ) -> Dict[str, Any]:
-        """Broadcast mensagem para todos os membros do room."""
-        pass
-    
-    def get_room_members(self, room_name: str) -> List[str]:
-        """Retorna membros de um room."""
-        pass
-    
-    def get_all_rooms(self) -> List[Dict[str, Any]]:
-        """Retorna todos os rooms ativos."""
-        pass
-    
-    def _notify_room_members(self, room_name: str, message: Dict[str, Any], exclude: List[str] = None):
-        """Envia notificação a todos os membros do room."""
-        pass
-    
-    def notify_user_online(self, username: str, handler):
-        """Notifica contactos que utilizador ficou online."""
-        pass
-    
-    def notify_user_offline(self, username: str):
-        """Notifica contactos que utilizador ficou offline."""
-        pass
-    
-    def get_room_info(self, room_name: str) -> Optional[Dict[str, Any]]:
-        """Retorna informação do room."""
-        pass
+        epoch: int,
+        content: str,
+        nonce: str,
+        tag: str
+    ) -> bool:
+        """
+        Broadcast de mensagem de grupo para todos os membros ativos.
+        Entrega via socket se online, ou guarda em group_messages se offline.
+        """
+        members = self.storage.get_group_members(group_name, only_active=True)
+        if not members:
+            return False
+
+        # Criar mensagem de protocolo
+        msg = Message(
+            msg_type=MessageType.GROUP_MSG.value,
+            sender=sender,
+            payload={
+                "room_name": group_name,
+                "epoch":     epoch,
+                "content":   content,
+                "nonce":     nonce,
+                "tag":       tag
+            }
+        )
+
+        for m in members:
+            member = m["username"]
+            if member == sender: continue
+
+            handler = await self.user_manager.get_user_socket(member)
+            if handler:
+                try:
+                    await handler.send_message(msg)
+                except Exception as e:
+                    logger.error(f"Falha ao entregar msg de grupo online a {member}: {e}")
+                    self._store_offline_group_msg(group_name, member, sender, epoch, content, nonce, tag)
+            else:
+                self._store_offline_group_msg(group_name, member, sender, epoch, content, nonce, tag)
+        
+        return True
+
+    def _store_offline_group_msg(self, group_name, recipient, sender, epoch, content, nonce, tag):
+        """Helper para guardar mensagem de grupo na BD."""
+        try:
+            c_bytes = base64.b64decode(content)
+            n_bytes = base64.b64decode(nonce)
+            t_bytes = base64.b64decode(tag)
+            self.storage.store_group_message(group_name, recipient, sender, epoch, c_bytes, n_bytes, t_bytes)
+        except Exception as e:
+            logger.error(f"Erro ao guardar msg de grupo offline para {recipient}: {e}")

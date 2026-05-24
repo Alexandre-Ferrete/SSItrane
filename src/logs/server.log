@@ -1,92 +1,35 @@
-2026-05-23 10:33:40,299 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 10:33:40,341 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 10:33:43,955 - INFO - [+] Nova conexão: ('127.0.0.1', 61935)
-2026-05-23 10:33:43,994 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 61935)
-2026-05-23 10:33:47,459 - INFO - [*] Certificado emitido pela CA para a
-2026-05-23 10:33:50,114 - INFO - [*] Certificado emitido pela CA para b
-2026-05-23 10:33:54,728 - INFO - [+] Nova conexão: ('127.0.0.1', 61937)
-2026-05-23 10:33:54,746 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 61937)
-2026-05-23 10:35:13,641 - INFO - [+] Nova conexão: ('127.0.0.1', 51459)
-2026-05-23 10:35:13,660 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51459)
-2026-05-23 10:42:25,398 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 10:42:25,409 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 10:42:30,280 - INFO - [+] Nova conexão: ('127.0.0.1', 51319)
-2026-05-23 10:42:30,318 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51319)
-2026-05-23 10:42:38,718 - INFO - [+] Nova conexão: ('127.0.0.1', 51323)
-2026-05-23 10:42:38,734 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51323)
-2026-05-23 10:44:45,257 - INFO - [+] Nova conexão: ('127.0.0.1', 49235)
-2026-05-23 10:44:45,275 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 49235)
-2026-05-23 10:45:44,786 - INFO - [+] Nova conexão: ('127.0.0.1', 49241)
-2026-05-23 10:45:44,810 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 49241)
-2026-05-23 10:45:48,593 - INFO - [*] Certificado emitido pela CA para p
-2026-05-23 10:52:00,107 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 10:52:00,116 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 10:52:02,448 - INFO - [+] Nova conexão: ('127.0.0.1', 65473)
-2026-05-23 10:52:02,475 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 65473)
-2026-05-23 10:52:20,659 - INFO - [+] Nova conexão: ('127.0.0.1', 55586)
-2026-05-23 10:52:20,680 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55586)
-2026-05-23 10:53:34,378 - INFO - [+] Nova conexão: ('127.0.0.1', 63711)
-2026-05-23 10:53:34,395 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 63711)
-2026-05-23 10:53:44,464 - INFO - [+] Nova conexão: ('127.0.0.1', 63714)
-2026-05-23 10:53:44,481 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 63714)
-2026-05-23 10:59:19,125 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 10:59:19,135 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 10:59:21,613 - INFO - [+] Nova conexão: ('127.0.0.1', 54625)
-2026-05-23 10:59:21,643 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 54625)
-2026-05-23 10:59:27,619 - INFO - [*] Certificado emitido pela CA para pablo
-2026-05-23 10:59:38,461 - INFO - [+] Nova conexão: ('127.0.0.1', 58285)
-2026-05-23 10:59:38,477 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58285)
-2026-05-23 11:00:23,359 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 11:00:23,368 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 11:00:25,666 - INFO - [+] Nova conexão: ('127.0.0.1', 58295)
-2026-05-23 11:00:25,704 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58295)
-2026-05-23 11:00:37,299 - INFO - [+] Nova conexão: ('127.0.0.1', 58299)
-2026-05-23 11:00:37,316 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58299)
-2026-05-23 11:01:15,919 - INFO - [+] Nova conexão: ('127.0.0.1', 58304)
-2026-05-23 11:01:15,938 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58304)
-2026-05-23 11:01:25,356 - INFO - [+] Nova conexão: ('127.0.0.1', 58308)
-2026-05-23 11:01:25,373 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58308)
-2026-05-23 14:30:08,401 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 14:30:08,427 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 14:30:12,557 - INFO - [+] Nova conexão: ('127.0.0.1', 58389)
-2026-05-23 14:30:12,612 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58389)
-2026-05-23 14:30:27,254 - INFO - [+] Nova conexão: ('127.0.0.1', 58392)
-2026-05-23 14:30:27,269 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58392)
-2026-05-23 14:39:42,902 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 14:39:42,944 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 14:39:46,944 - INFO - [+] Nova conexão: ('127.0.0.1', 64163)
-2026-05-23 14:39:46,978 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 64163)
-2026-05-23 14:39:50,327 - INFO - [*] Certificado emitido pela CA para a
-2026-05-23 14:39:53,887 - INFO - [*] Certificado emitido pela CA para b
-2026-05-23 14:40:19,558 - INFO - [+] Nova conexão: ('127.0.0.1', 57353)
-2026-05-23 14:40:19,576 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 57353)
-2026-05-23 14:44:07,612 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 14:44:07,656 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 14:44:16,684 - INFO - [+] Nova conexão: ('127.0.0.1', 61427)
-2026-05-23 14:44:16,719 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 61427)
-2026-05-23 14:44:28,136 - INFO - [+] Nova conexão: ('127.0.0.1', 61430)
-2026-05-23 14:44:28,152 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 61430)
-2026-05-23 14:44:31,016 - INFO - [*] Certificado emitido pela CA para a
-2026-05-23 14:44:35,163 - INFO - [*] Certificado emitido pela CA para b
-2026-05-23 14:45:57,672 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 14:45:57,717 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 14:46:01,264 - INFO - [+] Nova conexão: ('127.0.0.1', 51687)
-2026-05-23 14:46:01,296 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51687)
-2026-05-23 14:46:05,269 - INFO - [*] Certificado emitido pela CA para a
-2026-05-23 14:46:07,532 - INFO - [*] Certificado emitido pela CA para b
-2026-05-23 14:46:19,625 - INFO - [+] Nova conexão: ('127.0.0.1', 51691)
-2026-05-23 14:46:19,641 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51691)
-2026-05-23 14:46:40,974 - INFO - [+] Nova conexão: ('127.0.0.1', 56987)
-2026-05-23 14:46:40,992 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 56987)
-2026-05-23 14:46:50,855 - INFO - [+] Nova conexão: ('127.0.0.1', 56990)
-2026-05-23 14:46:50,873 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 56990)
-2026-05-23 15:01:19,108 - INFO - [*] Chaves do servidor já existem. A carregar...
-2026-05-23 15:01:19,153 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
-2026-05-23 15:01:25,139 - INFO - [+] Nova conexão: ('127.0.0.1', 52490)
-2026-05-23 15:01:25,173 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 52490)
-2026-05-23 15:01:28,217 - INFO - [*] Certificado emitido pela CA para a
-2026-05-23 15:01:33,104 - INFO - [*] Certificado emitido pela CA para b
-2026-05-23 15:01:40,785 - INFO - [+] Nova conexão: ('127.0.0.1', 52493)
-2026-05-23 15:01:40,805 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 52493)
-2026-05-23 15:02:06,347 - INFO - [+] Nova conexão: ('127.0.0.1', 52497)
-2026-05-23 15:02:06,363 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 52497)
+2026-05-24 11:33:44,026 - INFO - [*] Tentativa de arranque com password_env=False
+2026-05-24 11:33:44,027 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 11:33:44,085 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 11:33:55,203 - INFO - [+] Nova conexão: ('127.0.0.1', 64595)
+2026-05-24 11:33:55,236 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 64595)
+2026-05-24 11:34:56,788 - INFO - [*] Tentativa de arranque com password_env=False
+2026-05-24 11:34:56,788 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 11:34:56,799 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 11:35:00,090 - INFO - [+] Nova conexão: ('127.0.0.1', 64514)
+2026-05-24 11:35:00,121 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 64514)
+2026-05-24 11:35:21,593 - INFO - [+] Nova conexão: ('127.0.0.1', 53581)
+2026-05-24 11:35:21,609 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 53581)
+2026-05-24 11:35:34,740 - INFO - [+] Nova conexão: ('127.0.0.1', 53585)
+2026-05-24 11:35:34,758 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 53585)
+2026-05-24 11:35:56,420 - INFO - [+] Nova conexão: ('127.0.0.1', 53589)
+2026-05-24 11:35:56,439 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 53589)
+2026-05-24 11:36:10,631 - INFO - [+] Nova conexão: ('127.0.0.1', 53592)
+2026-05-24 11:36:10,647 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 53592)
+2026-05-24 11:37:28,798 - INFO - [+] Nova conexão: ('127.0.0.1', 58636)
+2026-05-24 11:37:28,815 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58636)
+2026-05-24 11:38:04,026 - INFO - [+] Nova conexão: ('127.0.0.1', 51921)
+2026-05-24 11:38:04,044 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51921)
+2026-05-24 11:38:12,804 - INFO - [+] Nova conexão: ('127.0.0.1', 54343)
+2026-05-24 11:38:12,822 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 54343)
+2026-05-24 11:38:28,764 - INFO - [+] Nova conexão: ('127.0.0.1', 58970)
+2026-05-24 11:38:28,781 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58970)
+2026-05-24 11:38:39,589 - INFO - [+] Nova conexão: ('127.0.0.1', 58974)
+2026-05-24 11:38:39,605 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58974)
+2026-05-24 11:38:55,115 - INFO - [+] Nova conexão: ('127.0.0.1', 58978)
+2026-05-24 11:38:55,132 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58978)
+2026-05-24 11:39:02,833 - INFO - [+] Nova conexão: ('127.0.0.1', 58982)
+2026-05-24 11:39:02,849 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 58982)
+2026-05-24 11:39:50,999 - INFO - [*] Tentativa de arranque com password_env=False
+2026-05-24 11:39:51,000 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 11:39:51,009 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
