@@ -212,7 +212,10 @@ class ClientHandler:
             cert_pub_pem = cert.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
             pub_pem = public_key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
             if cert_pub_pem != pub_pem: return False
-            now = datetime.now(timezone.utc)
+            # Verify the certificate was signed by this server's CA
+            self.server.ca_pub_key.verify(cert.signature, cert.tbs_certificate_bytes)
+            # Validate time window (not_valid_before returns naive UTC in cryptography 41.x)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
             if now < cert.not_valid_before or now > cert.not_valid_after: return False
             return True
         except: return False
@@ -389,6 +392,51 @@ class ClientHandler:
                     try: await h.send_message(upd)
                     except: pass
             return self._build_response(MessageType.RESPONSE, "server", {"status": "success"}), None, False
+
+        if cmd == MessageType.GROUP_ADD_MEMBER.value:
+            room = data.get("room_name")
+            new_user = data.get("username")
+            epoch = data.get("epoch")
+            pub_tree = data.get("public_tree", {})
+            key_packages = data.get("key_packages", [])
+            member_key_packages = data.get("member_key_packages", [])
+            total_leaves = data.get("total_leaves", 0)
+
+            if not self.server.storage.is_group_member(room, self.username):
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não é membro"}), None, False
+
+            # Add new member
+            new_leaf = key_packages[0].get("leaf_index", total_leaves) if key_packages else total_leaves
+            self.server.storage.add_group_member(room, new_user, new_leaf)
+            self.server.storage.add_room_member(room, new_user)
+
+            # Update public tree nodes and epoch
+            for idx, pub in pub_tree.items():
+                self.server.storage.store_tree_node(room, int(idx), base64.b64decode(pub))
+            if epoch is not None:
+                self.server.storage.update_group_epoch(room, epoch)
+
+            # Deliver key package to the new user
+            for kp in key_packages:
+                target, blob = kp.get("username"), kp.get("encrypted_blob")
+                if target and blob:
+                    self.server.storage.store_group_key_package(room, epoch or 0, target, json.dumps(blob).encode('utf-8'))
+                    h = await self.server.online_users.get_user_socket(target)
+                    if h:
+                        try: await h.send_message(Message(MessageType.GROUP_KEY_PACKAGE.value, "server", {"room_name": room, "epoch": epoch or 0, "encrypted_blob": blob}))
+                        except: pass
+
+            # Deliver updated path secrets to existing members
+            for mkp in member_key_packages:
+                target, blob = mkp.get("username"), mkp.get("encrypted_blob")
+                if target and blob:
+                    self.server.storage.store_group_key_package(room, epoch or 0, target, json.dumps(blob).encode('utf-8'))
+                    h = await self.server.online_users.get_user_socket(target)
+                    if h:
+                        try: await h.send_message(Message(MessageType.GROUP_KEY_PACKAGE.value, "server", {"room_name": room, "epoch": epoch or 0, "encrypted_blob": blob}))
+                        except: pass
+
+            return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": f"{new_user} adicionado ao grupo {room}"}), None, False
 
         # 7. OFFLINE STORE
         if cmd == MessageType.OFFLINE_STORE.value:

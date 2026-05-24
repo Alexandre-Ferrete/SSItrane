@@ -227,12 +227,13 @@ class Storage:
         return [row[0] for row in cursor.fetchall()]
 
     def delete_user(self, username: str) -> bool:
-        self.conn.execute("DELETE FROM offline_messages WHERE recipient = ?", (username,))
-        self.conn.execute("DELETE FROM offline_messages WHERE sender = ?", (username,))
-        self.conn.execute("DELETE FROM room_members WHERE username = ?", (username,))
-        self.conn.execute("DELETE FROM user_devices WHERE username = ?", (username,))
-        cursor = self.conn.execute("DELETE FROM users WHERE username = ?", (username,))
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute("DELETE FROM offline_messages WHERE recipient = ?", (username,))
+            self.conn.execute("DELETE FROM offline_messages WHERE sender = ?", (username,))
+            self.conn.execute("DELETE FROM room_members WHERE username = ?", (username,))
+            self.conn.execute("DELETE FROM user_devices WHERE username = ?", (username,))
+            cursor = self.conn.execute("DELETE FROM users WHERE username = ?", (username,))
+            self.conn.commit()
         return cursor.rowcount > 0
 
     def purge_all(self) -> bool:

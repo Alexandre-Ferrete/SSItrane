@@ -229,7 +229,14 @@ class SessionManager:
         if not pub_b64 or not sig_b64 or not cert_b64: return False
         try:
             pub, sig, cert_pem = base64.b64decode(pub_b64), base64.b64decode(sig_b64), base64.b64decode(cert_b64)
-            x509.load_pem_x509_certificate(cert_pem).public_key().verify(sig, pub)
+            cert = x509.load_pem_x509_certificate(cert_pem)
+            # Verify cert was signed by the server CA
+            ca_pub_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ca_public.key")
+            with open(ca_pub_path, "rb") as f:
+                ca_pub_key = serialization.load_pem_public_key(f.read())
+            ca_pub_key.verify(cert.signature, cert.tbs_certificate_bytes)
+            # Verify the ephemeral pub key was signed with the peer's identity key
+            cert.public_key().verify(sig, pub)
             with open(os.path.join(self.data_dir, f"{peer}_cert.pem"), "wb") as f: f.write(cert_pem)
             return True
         except: return False
@@ -492,6 +499,21 @@ class SessionManager:
         except:
             traceback.print_exc()
             return {}
+
+    def _get_member_leaf(self, state: dict, member_username: str) -> Optional[int]:
+        members = state.get("members_cache", [])
+        if member_username not in members:
+            return None
+        return state["total_leaves"] + members.index(member_username)
+
+    def _get_member_enc_pub(self, state: dict, member_username: str) -> Optional[str]:
+        leaf = self._get_member_leaf(state, member_username)
+        if leaf is None:
+            return None
+        pub_bytes = state["tree_pub_keys"].get(leaf)
+        if not pub_bytes:
+            return None
+        return base64.b64encode(pub_bytes).decode('utf-8')
 
     def process_tree_update(self, room: str, payload: dict, password_kdf: bytes) -> bool:
         if room not in self.group_states: return False

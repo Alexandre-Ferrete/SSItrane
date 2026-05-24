@@ -9,7 +9,6 @@ from typing import Tuple, Dict, Optional
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives.kdf.concatkdf import ConcatKDFHash
 from . import symmetric
 
 
@@ -80,25 +79,15 @@ def decrypt_ecdh(
     return symmetric.decrypt(session_key, ciphertext, nonce, tag)
 
 
-def encrypt_content(plaintext: str, recipient_pub_key_b64: str) -> dict:
+def encrypt_content(plaintext: str, recipient_enc_pub_key_b64: str) -> dict:
     """
-    Encripta mensagem para destinatário offline usando chave pública.
+    Encrypt offline message for recipient using ECDH with their X25519 public key.
     """
-    pub_key_bytes = base64.b64decode(recipient_pub_key_b64)
-    
-    # For offline messages, we use a simpler derivation if it's Ed25519
-    kdf = ConcatKDFHash(
-        algorithm=hashes.SHA256(),
-        length=32,
-        other_info=b"OfflineMessage"
-    )
-    session_key = kdf.derive(pub_key_bytes)
-    
-    plaintext_bytes = plaintext.encode('utf-8')
-    ciphertext, nonce, tag = symmetric.encrypt(session_key, plaintext_bytes)
-    
+    pub_key_bytes = base64.b64decode(recipient_enc_pub_key_b64)
+    eph_pub, nonce, tag, ciphertext = encrypt_ecdh(pub_key_bytes, plaintext.encode('utf-8'))
     return {
-        "content": base64.b64encode(ciphertext).decode('utf-8'),
-        "nonce":   base64.b64encode(nonce).decode('utf-8'),
-        "tag":     base64.b64encode(tag).decode('utf-8')
+        "content":       base64.b64encode(ciphertext).decode('utf-8'),
+        "nonce":         base64.b64encode(nonce).decode('utf-8'),
+        "tag":           base64.b64encode(tag).decode('utf-8'),
+        "ephemeral_key": base64.b64encode(eph_pub).decode('utf-8'),
     }

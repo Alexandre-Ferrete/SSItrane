@@ -73,8 +73,13 @@ class ChatClient:
 
     def _recv_packet(self, sock: socket.socket) -> Optional[Message]:
         try:
-            header = sock.recv(4)
-            if not header or len(header) < 4: return None
+            # Read exactly 4 bytes for the length header (TCP is a stream — recv may return fewer)
+            header = b""
+            while len(header) < 4:
+                chunk = sock.recv(4 - len(header))
+                if not chunk:
+                    return None
+                header += chunk
             length = struct.unpack('!I', header)[0]
             data_bytes = b""
             while len(data_bytes) < length:
@@ -95,8 +100,11 @@ class ChatClient:
     def connect(self) -> bool:
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.settimeout(10); self.server_socket.connect(self.server_addr)
+            self.server_socket.settimeout(10)
+            self.server_socket.connect(self.server_addr)
             if not self._perform_server_handshake(): return False
+            # Remove timeout — the receive loop must block indefinitely waiting for messages
+            self.server_socket.settimeout(None)
             self.running = True
             threading.Thread(target=self._server_receive_loop, daemon=True).start()
             return True
@@ -137,7 +145,12 @@ class ChatClient:
             try:
                 sock, addr = self.p2p_socket.accept()
                 threading.Thread(target=self._handle_peer_connection, args=(sock, addr), daemon=True).start()
-            except: break
+            except OSError:
+                break  # socket was closed, stop listening
+            except Exception:
+                if self.running:
+                    continue  # transient error, keep accepting
+                break
 
     def _handle_peer_connection(self, sock, addr):
         peer = None
@@ -224,7 +237,11 @@ class ChatClient:
     def connect_to_peer(self, username, ip, port):
         try:
             print(f"[*] A tentar ligar a {username} em {ip}:{port}...")
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM); sock.settimeout(5); sock.connect((ip, int(port)))
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            sock.connect((ip, int(port)))
+            # Remove timeout — the P2P connection must stay open indefinitely
+            sock.settimeout(None)
             with self.global_lock: self.peer_sessions[username] = {"socket": sock}
             h_data = self.session_manager.get_handshake_data(username)
             self._send_packet(sock, Message(MessageType.P2P_HELLO.value, self.username, h_data))
@@ -247,6 +264,15 @@ class ChatClient:
                                 if "total_leaves" in msg.payload: state["total_leaves"] = msg.payload["total_leaves"]
                                 if "public_tree" in msg.payload: state["tree_pub_keys"] = {int(k): base64.b64decode(v) for k,v in msg.payload["public_tree"].items()}
                                 print(f"[*] Metadados do grupo {room} sincronizados.")
+                        if "Registo OK" in texto:
+                            cert_b64 = msg.payload.get("certificate")
+                            user = self.session_manager.username
+                            if cert_b64 and user:
+                                cert_pem = base64.b64decode(cert_b64)
+                                self.session_manager.identity_cert = cert_pem
+                                cert_path = os.path.join(self.session_manager.data_dir, f"{user}_cert.pem")
+                                with open(cert_path, "wb") as f: f.write(cert_pem)
+                                print(f"[*] Certificado CA guardado para {user}.")
                         if "Login OK" in texto:
                             self.username = msg.payload["username"]; self.session_manager.set_username(self.username)
                             if msg.payload.get("salt"):
@@ -391,19 +417,27 @@ class ChatClient:
                         for m in others: self._send_packet(self.server_socket, Message(MessageType.GET_IP.value, self.username, {"target_user": m, "purpose": f"group_create:{gn}"}))
                     elif sc == "msg" and args:
                         r_p = args.split(" ", 1)
-                        if len(r_p) == 2:  # já correto, mas o crash vem de args vazio
+                        if len(r_p) == 2:
                             enc = self.session_manager.encrypt_for_group(r_p[0], r_p[1])
                             if enc: self._send_packet(self.server_socket, Message(MessageType.GROUP_MSG.value, self.username, enc))
-                            else:
-                                print("[!] Uso: /group msg <sala> <mensagem>")  # faltava este else
+                            else: print("[!] Uso: /group msg <sala> <mensagem>")
+                    elif sc == "add" and args:
+                        a_p = args.split(" ", 1)
+                        if len(a_p) == 2:
+                            gn, new_user = a_p[0].strip(), a_p[1].strip()
+                            self._send_packet(self.server_socket, Message(MessageType.GET_IP.value, self.username, {"target_user": new_user, "purpose": f"group_add:{gn}"}))
+                        else: print("[!] Uso: /group add <sala> <utilizador>")
                     elif sc == "list":
                         self._send_packet(self.server_socket, Message(MessageType.GROUP_LIST.value, self.username, {}))
                     elif sc == "info":
-                        if not args:  # args pode ser "" e o strip() não chega
+                        if not args:
                             print("[!] Uso: /group info <sala>")
                         else:
                             self._send_packet(self.server_socket, Message(MessageType.GROUP_INFO.value, self.username, {"room_name": args.strip()}))
-                    elif cmd == "/list": self._send_packet(self.server_socket, Message(MessageType.GET_USERS.value, self.username, {}))
+                    else:
+                        print("[!] Subcomandos: create <sala> <user1> [user2...] | msg <sala> <msg> | add <sala> <user> | list | info <sala>")
+                elif cmd == "/list":
+                    self._send_packet(self.server_socket, Message(MessageType.GET_USERS.value, self.username, {}))
                 elif cmd == "/exit": self.running = False; break
             except EOFError: break
             except Exception as e: print(f"[!] Erro no CLI: {e}")

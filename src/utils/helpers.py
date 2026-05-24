@@ -18,8 +18,6 @@ from cryptography.exceptions import InvalidKey
 import base64
 import hashlib
 import hmac
-import os
-from typing import Optional
 
 
 # =========================================================================
