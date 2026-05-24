@@ -532,7 +532,13 @@ class SessionManager:
                 return {}
 
             total_leaves = state["total_leaves"]
-            new_leaf = total_leaves + len(members)
+            # Reuse a vacant (None) slot if one exists, otherwise append at the end
+            try:
+                slot = members.index(None)
+                new_leaf = total_leaves + slot
+            except ValueError:
+                slot = len(members)
+                new_leaf = total_leaves + slot
 
             if new_leaf >= total_leaves * 2:
                 print("[!] Grupo cheio. Não é possível adicionar mais membros.")
@@ -557,7 +563,10 @@ class SessionManager:
             state["epoch"] = new_epoch
             state["group_key"] = self.derive_group_key(state["tree_priv"][1], new_epoch)
             state["ratchets"] = {}  # new group_key → reset all per-sender ratchets
-            members.append(new_user)
+            if slot < len(members):
+                members[slot] = new_user   # fill the vacant slot
+            else:
+                members.append(new_user)   # extend the list
             state["members"] = members
             self._save_group_states(password_kdf)
 

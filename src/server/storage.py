@@ -412,15 +412,12 @@ class Storage:
     # ROOM MEMBER FUNCTIONS
     def add_room_member(self, room_name: str, username: str) -> bool:
         # Adiciona membro a uma sala
-        try:
-            self.conn.execute(
-                "INSERT INTO room_members (room_name, username) VALUES (?, ?)",
-                (room_name, username)
-            )
-            self.conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
+        self.conn.execute(
+            "INSERT OR IGNORE INTO room_members (room_name, username) VALUES (?, ?)",
+            (room_name, username)
+        )
+        self.conn.commit()
+        return True
 
     def remove_room_member(self, room_name: str, username: str) -> bool:
         # Remove membro de uma sala
@@ -499,16 +496,13 @@ class Storage:
         return [{"node_index": row[0], "public_key": row[1]} for row in cursor.fetchall()]
 
     def add_group_member(self, group_name: str, username: str, leaf_index: int) -> bool:
-        try:
-            with self._lock:
-                self.conn.execute(
-                    "INSERT INTO group_members (group_name, username, leaf_index, active) VALUES (?, ?, ?, 1)",
-                    (group_name, username, leaf_index)
-                )
-                self.conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO group_members (group_name, username, leaf_index, active) VALUES (?, ?, ?, 1)",
+                (group_name, username, leaf_index)
+            )
+            self.conn.commit()
+        return True
 
     def remove_group_member(self, group_name: str, username: str) -> bool:
         with self._lock:
