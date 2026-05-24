@@ -260,9 +260,10 @@ class ChatClient:
                             room = msg.payload["room_name"]
                             if room in self.session_manager.group_states:
                                 state = self.session_manager.group_states[room]
-                                if "members" in msg.payload: state["members_cache"] = msg.payload["members"]
+                                if "members" in msg.payload: state["members"] = msg.payload["members"]
                                 if "total_leaves" in msg.payload: state["total_leaves"] = msg.payload["total_leaves"]
-                                if "public_tree" in msg.payload: state["tree_pub_keys"] = {int(k): base64.b64decode(v) for k,v in msg.payload["public_tree"].items()}
+                                if "epoch" in msg.payload: state["epoch"] = msg.payload["epoch"]
+                                if "public_tree" in msg.payload: state["tree_pub"].update({int(k): base64.b64decode(v) for k,v in msg.payload["public_tree"].items()})
                                 print(f"[*] Metadados do grupo {room} sincronizados.")
                         if "Registo OK" in texto:
                             cert_b64 = msg.payload.get("certificate")
@@ -285,6 +286,31 @@ class ChatClient:
                             self._send_packet(self.server_socket, Message(MessageType.OFFLINE_STORE.value, self.username, {"action": "get"}))
                         else: print(f"\n[*] SUCESSO: {texto}")
                     else: print(f"\n[*] ERRO: {texto}")
+                    # Handle being removed from a group
+                    if msg.payload.get("removed_from_group"):
+                        room = msg.payload["removed_from_group"]
+                        self.session_manager.group_states.pop(room, None)
+                        print(f"[!] Foste removido do grupo '{room}'.")
+                elif msg.msg_type == MessageType.GROUP_CREATE.value:
+                    room = msg.payload.get("room_name")
+                    if room and room in self.pending_group_actions:
+                        all_m = [{"username": self.username, "enc_pub_key": base64.b64encode(self.session_manager.get_encryption_key_raw()).decode('utf-8')}]
+                        for mk in msg.payload.get("member_keys", []):
+                            if mk["username"] == self.username: continue
+                            enc = mk.get("encryption_key")
+                            if enc:
+                                all_m.append({"username": mk["username"], "enc_pub_key": enc})
+                            else:
+                                print(f"[!] {mk['username']} não tem chave de encriptação — omitido do grupo.")
+                        if len(all_m) >= 2:
+                            init_p = self.session_manager.initialize_tree_as_creator(room, all_m, self.iden_kdf)
+                            if init_p:
+                                init_p["members"] = [m["username"] for m in all_m]
+                                self._send_packet(self.server_socket, Message(MessageType.GROUP_INIT.value, self.username, init_p))
+                                print(f"[*] Grupo '{room}' criado com {len(all_m)} membros.")
+                        else:
+                            print(f"[!] Membros insuficientes com chaves para criar '{room}'.")
+                        del self.pending_group_actions[room]
                 elif msg.msg_type == MessageType.IP_RESPONSE.value:
                     target = msg.payload.get('target_user')
                     purpose = msg.payload.get('purpose', '')
@@ -293,16 +319,15 @@ class ChatClient:
                         room = purpose.split(":", 1)[1]
                         if room in self.pending_group_actions:
                             p = self.pending_group_actions[room]
-                            if msg.payload.get("status") == "success" and msg.payload.get("encryption_key"):
-                                p["member_keys"].append({
+                            enc_key = msg.payload.get("encryption_key")
+                            if enc_key:
+                                p.setdefault("member_keys", []).append({
                                     "username": target,
-                                    "enc_pub_key": msg.payload["encryption_key"]
+                                    "enc_pub_key": enc_key
                                 })
                             else:
-                                print(f"[!] Erro: {target} offline. Grupo cancelado.")
-                                del self.pending_group_actions[room]
-                                continue
-                            if len(p["member_keys"]) == len(p["members"]):
+                                print(f"[!] {target} não tem chave de encriptação — omitido do grupo.")
+                            if len(p.get("member_keys", [])) == len(p.get("members", [])):
                                 all_m = [{"username": self.username, "enc_pub_key": base64.b64encode(self.session_manager.get_encryption_key_raw()).decode('utf-8')}] + p["member_keys"]
                                 init_p = self.session_manager.initialize_tree_as_creator(room, all_m, self.iden_kdf)
                                 if init_p:
@@ -360,12 +385,12 @@ class ChatClient:
                         self._send_packet(self.server_socket, Message(MessageType.GROUP_INFO.value, self.username, {"room_name": msg.payload["room_name"]}))
                 elif msg.msg_type == MessageType.GROUP_UPDATE.value: self.session_manager.process_tree_update(msg.payload["room_name"], msg.payload, self.iden_kdf)
                 elif msg.msg_type == MessageType.GROUP_MSG.value:
-                    txt = self.session_manager.decrypt_from_group(msg.payload["room_name"], msg.payload["epoch"], msg.payload)
+                    txt = self.session_manager.decrypt_from_group(msg.payload["room_name"], msg.payload["epoch"], msg.sender, msg.payload, self.iden_kdf)
                     if txt: print(f"\n[GRUPO][{msg.payload['room_name']}][{msg.sender}]: {txt}")
                 elif msg.msg_type == "offline_messages":
                     for m in msg.payload.get("messages", []): print(f"\n[OFFLINE][{m['sender']}]: {self.session_manager.decrypt_offline(m)}")
                     for gm in msg.payload.get("group_messages", []):
-                        t = self.session_manager.decrypt_from_group(gm["room_name"], gm["epoch"], gm)
+                        t = self.session_manager.decrypt_from_group(gm["room_name"], gm["epoch"], gm["sender"], gm, self.iden_kdf)
                         if t: print(f"\n[OFFLINE-GRUPO][{gm['room_name']}][{gm['sender']}]: {t}")
                     if self.should_rotate_offline_key and self.iden_kdf:
                         self._send_packet(self.server_socket, Message(MessageType.UPDATE_KEYS.value, self.username, {"encryption_key": base64.b64encode(self.session_manager.rotate_encryption_key(self.iden_kdf)).decode('utf-8')}))
@@ -413,14 +438,25 @@ class ChatClient:
                         gp = [m for m in args.split(" ") if m]
                         if len(gp) < 2: continue
                         gn, others = gp[0], [m for m in gp[1:] if m != self.username]; print(f"[*] A criar grupo '{gn}'...");
-                        self.pending_group_actions[gn] = {"type": "create", "members": others, "member_keys": []}
-                        for m in others: self._send_packet(self.server_socket, Message(MessageType.GET_IP.value, self.username, {"target_user": m, "purpose": f"group_create:{gn}"}))
+                        self.pending_group_actions[gn] = {"type": "create"}
+                        all_members = [self.username] + others
+                        self._send_packet(self.server_socket, Message(MessageType.GROUP_CREATE.value, self.username, {"room_name": gn, "members": all_members}))
                     elif sc == "msg" and args:
                         r_p = args.split(" ", 1)
                         if len(r_p) == 2:
-                            enc = self.session_manager.encrypt_for_group(r_p[0], r_p[1])
+                            enc = self.session_manager.encrypt_for_group(r_p[0], r_p[1], self.iden_kdf)
                             if enc: self._send_packet(self.server_socket, Message(MessageType.GROUP_MSG.value, self.username, enc))
                             else: print("[!] Uso: /group msg <sala> <mensagem>")
+                    elif sc == "remove" and args:
+                        r_p = args.split(" ", 1)
+                        if len(r_p) == 2:
+                            gn, rem_user = r_p[0].strip(), r_p[1].strip()
+                            remove_p = self.session_manager.prepare_remove_update(gn, rem_user, self.iden_kdf)
+                            if remove_p:
+                                self._send_packet(self.server_socket, Message(MessageType.GROUP_REMOVE_MEMBER.value, self.username, remove_p))
+                            else:
+                                print(f"[!] Não és admin ou {rem_user} não é membro de {gn}")
+                        else: print("[!] Uso: /group remove <sala> <utilizador>")
                     elif sc == "add" and args:
                         a_p = args.split(" ", 1)
                         if len(a_p) == 2:
@@ -435,7 +471,7 @@ class ChatClient:
                         else:
                             self._send_packet(self.server_socket, Message(MessageType.GROUP_INFO.value, self.username, {"room_name": args.strip()}))
                     else:
-                        print("[!] Subcomandos: create <sala> <user1> [user2...] | msg <sala> <msg> | add <sala> <user> | list | info <sala>")
+                        print("[!] Subcomandos: create <sala> <user1> [user2...] | msg <sala> <msg> | add <sala> <user> | remove <sala> <user> | list | info <sala>")
                 elif cmd == "/list":
                     self._send_packet(self.server_socket, Message(MessageType.GET_USERS.value, self.username, {}))
                 elif cmd == "/exit": self.running = False; break

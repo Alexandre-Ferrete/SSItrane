@@ -115,6 +115,57 @@ class Storage:
             )
         """)
 
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                name TEXT PRIMARY KEY,
+                created_by TEXT NOT NULL,
+                epoch INTEGER NOT NULL DEFAULT 0,
+                total_leaves INTEGER NOT NULL DEFAULT 4
+            )
+        """)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_members (
+                group_name TEXT NOT NULL,
+                username TEXT NOT NULL,
+                leaf_index INTEGER NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (group_name, username)
+            )
+        """)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS tree_nodes (
+                group_name TEXT NOT NULL,
+                node_index INTEGER NOT NULL,
+                public_key BLOB NOT NULL,
+                PRIMARY KEY (group_name, node_index)
+            )
+        """)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_key_packages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name TEXT NOT NULL,
+                epoch INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                encrypted_blob BLOB NOT NULL
+            )
+        """)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name TEXT NOT NULL,
+                recipient TEXT NOT NULL,
+                sender TEXT NOT NULL,
+                epoch INTEGER NOT NULL,
+                encrypted_content BLOB NOT NULL,
+                nonce BLOB NOT NULL,
+                tag BLOB NOT NULL
+            )
+        """)
+
         self.conn.commit()
 
     def close(self):
@@ -403,44 +454,148 @@ class Storage:
         )
         return [row[0] for row in cursor.fetchall()]
 
-    def get_key_packages_for_user(self, username: str) -> list:
-        return []
-
-    def store_group_key_package(self, group_name: str, epoch: int, username: str, encrypted_blob: bytes) -> bool:
-        return False
+    # ── GROUP METHODS ────────────────────────────────────────────────────────
 
     def create_group(self, name: str, created_by: str, total_leaves: int) -> bool:
-        return False
+        try:
+            with self._lock:
+                self.conn.execute(
+                    "INSERT INTO groups (name, created_by, epoch, total_leaves) VALUES (?, ?, 0, ?)",
+                    (name, created_by, total_leaves)
+                )
+                self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
 
-    def store_tree_node(self, group_name: str, node_index: int, public_key: bytes) -> bool:
-        return False
-
-    def add_group_member(self, group_name: str, username: str, leaf_index: int) -> bool:
-        return False
-
-    def is_group_member(self, group_name: str, username: str) -> bool:
-        return False
-
-    def get_group_members(self, group_name: str, only_active: bool = False) -> list:
-        return []
-
-    def get_group(self, group_name: str):
-        return None
-
-    def get_tree_nodes(self, group_name: str) -> list:
-        return []
+    def get_group(self, group_name: str) -> Optional[Dict[str, Any]]:
+        row = self.conn.execute(
+            "SELECT name, created_by, epoch, total_leaves FROM groups WHERE name = ?", (group_name,)
+        ).fetchone()
+        return dict(row) if row else None
 
     def update_group_epoch(self, group_name: str, epoch: int) -> bool:
-        return False
+        with self._lock:
+            cursor = self.conn.execute(
+                "UPDATE groups SET epoch = ? WHERE name = ?", (epoch, group_name)
+            )
+            self.conn.commit()
+        return cursor.rowcount > 0
 
-    def list_user_groups(self, username: str) -> list:
-        return []
+    def store_tree_node(self, group_name: str, node_index: int, public_key: bytes) -> bool:
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO tree_nodes (group_name, node_index, public_key) VALUES (?, ?, ?)",
+                (group_name, node_index, public_key)
+            )
+            self.conn.commit()
+        return True
 
-    def get_group_messages_for_user(self, username: str) -> list:
-        return []
+    def get_tree_nodes(self, group_name: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.execute(
+            "SELECT node_index, public_key FROM tree_nodes WHERE group_name = ? ORDER BY node_index",
+            (group_name,)
+        )
+        return [{"node_index": row[0], "public_key": row[1]} for row in cursor.fetchall()]
 
-    def store_group_message(self, group_name: str, recipient: str, sender: str, epoch: int, content: bytes, nonce: bytes, tag: bytes) -> bool:
-        return False
+    def add_group_member(self, group_name: str, username: str, leaf_index: int) -> bool:
+        try:
+            with self._lock:
+                self.conn.execute(
+                    "INSERT INTO group_members (group_name, username, leaf_index, active) VALUES (?, ?, ?, 1)",
+                    (group_name, username, leaf_index)
+                )
+                self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def remove_group_member(self, group_name: str, username: str) -> bool:
+        with self._lock:
+            cursor = self.conn.execute(
+                "UPDATE group_members SET active = 0 WHERE group_name = ? AND username = ?",
+                (group_name, username)
+            )
+            self.conn.commit()
+        return cursor.rowcount > 0
+
+    def is_group_member(self, group_name: str, username: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM group_members WHERE group_name = ? AND username = ? AND active = 1",
+            (group_name, username)
+        ).fetchone()
+        return row is not None
+
+    def get_group_members(self, group_name: str, only_active: bool = False) -> List[Dict[str, Any]]:
+        if only_active:
+            cursor = self.conn.execute(
+                "SELECT username, leaf_index, active FROM group_members WHERE group_name = ? AND active = 1 ORDER BY leaf_index",
+                (group_name,)
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT username, leaf_index, active FROM group_members WHERE group_name = ? ORDER BY leaf_index",
+                (group_name,)
+            )
+        return [{"username": row[0], "leaf_index": row[1], "active": bool(row[2])} for row in cursor.fetchall()]
+
+    def list_user_groups(self, username: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.execute(
+            """SELECT g.name, g.created_by, g.epoch, g.total_leaves
+               FROM groups g JOIN group_members gm ON g.name = gm.group_name
+               WHERE gm.username = ? AND gm.active = 1""",
+            (username,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def store_group_key_package(self, group_name: str, epoch: int, username: str, encrypted_blob: bytes) -> bool:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO group_key_packages (group_name, epoch, username, encrypted_blob) VALUES (?, ?, ?, ?)",
+                (group_name, epoch, username, encrypted_blob)
+            )
+            self.conn.commit()
+        return True
+
+    def get_key_packages_for_user(self, username: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.execute(
+            """SELECT kp.group_name, kp.epoch, kp.encrypted_blob
+               FROM group_key_packages kp
+               JOIN groups g ON kp.group_name = g.name
+               WHERE kp.username = ? AND kp.epoch = g.epoch""",
+            (username,)
+        )
+        return [{"group_name": row[0], "epoch": row[1], "encrypted_blob": row[2]} for row in cursor.fetchall()]
+
+    def delete_key_packages_for_user(self, username: str, group_name: str) -> int:
+        with self._lock:
+            cursor = self.conn.execute(
+                "DELETE FROM group_key_packages WHERE username = ? AND group_name = ?",
+                (username, group_name)
+            )
+            self.conn.commit()
+        return cursor.rowcount
+
+    def store_group_message(self, group_name: str, recipient: str, sender: str, epoch: int,
+                             content: bytes, nonce: bytes, tag: bytes) -> bool:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO group_messages (group_name, recipient, sender, epoch, encrypted_content, nonce, tag) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (group_name, recipient, sender, epoch, content, nonce, tag)
+            )
+            self.conn.commit()
+        return True
+
+    def get_group_messages_for_user(self, username: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.execute(
+            "SELECT id, group_name, sender, epoch, encrypted_content, nonce, tag FROM group_messages WHERE recipient = ? ORDER BY id",
+            (username,)
+        )
+        return [{"id": r[0], "group_name": r[1], "sender": r[2], "epoch": r[3],
+                 "content": r[4], "nonce": r[5], "tag": r[6]} for r in cursor.fetchall()]
 
     def clear_group_messages_for_user(self, username: str) -> int:
-        return 0
+        with self._lock:
+            cursor = self.conn.execute("DELETE FROM group_messages WHERE recipient = ?", (username,))
+            self.conn.commit()
+        return cursor.rowcount

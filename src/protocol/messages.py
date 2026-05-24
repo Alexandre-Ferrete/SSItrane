@@ -45,12 +45,14 @@ class MessageType(Enum):
     RATCHET_CONTRIBUTION = "ratchet_contribution"
 
     # TreeKEM / Grupos
+    GROUP_CREATE = "group_create"
     GROUP_INIT = "group_init"
     GROUP_MSG = "group_msg"
     GROUP_LIST = "group_list"
     GROUP_INFO = "group_info"
     GROUP_UPDATE = "group_update"
     GROUP_ADD_MEMBER = "group_add_member"
+    GROUP_REMOVE_MEMBER = "group_remove_member"
     GROUP_KEY_PACKAGE = "group_key_package"
 
 

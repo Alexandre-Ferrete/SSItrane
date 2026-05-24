@@ -335,6 +335,20 @@ class ClientHandler:
             return self._build_response(MessageType.USERS_LIST, "server", {"users": users}), None, False
 
         # 6. TREEKEM GROUPS
+        if cmd == MessageType.GROUP_CREATE.value:
+            room = data.get("room_name")
+            member_list = data.get("members", [])
+            if not room or not member_list:
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Dados incompletos"}), None, False
+            member_keys = []
+            for uname in member_list:
+                devices = self.server.storage.get_devices(uname)
+                enc_b64 = None
+                if devices and devices[0].get("encryption_key"):
+                    enc_b64 = base64.b64encode(devices[0]["encryption_key"]).decode('utf-8')
+                member_keys.append({"username": uname, "encryption_key": enc_b64})
+            return self._build_response(MessageType.GROUP_CREATE, "server", {"status": "success", "room_name": room, "member_keys": member_keys}), None, False
+
         if cmd == MessageType.GROUP_INIT.value:
             room = data.get("room_name")
             total = data.get("total_leaves")
@@ -437,6 +451,66 @@ class ClientHandler:
                         except: pass
 
             return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": f"{new_user} adicionado ao grupo {room}"}), None, False
+
+        if cmd == MessageType.GROUP_REMOVE_MEMBER.value:
+            room = data.get("room_name")
+            removed_user = data.get("removed_user")
+            epoch = data.get("epoch")
+            pub_tree = data.get("public_tree", {})
+            member_key_packages = data.get("member_key_packages", [])
+
+            group = self.server.storage.get_group(room)
+            if not group:
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Grupo não encontrado"}), None, False
+            if group["created_by"] != self.username:
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Sem permissão (apenas admin)"}), None, False
+
+            self.server.storage.remove_group_member(room, removed_user)
+            for idx, pub in pub_tree.items():
+                self.server.storage.store_tree_node(room, int(idx), base64.b64decode(pub))
+            if epoch is not None:
+                self.server.storage.update_group_epoch(room, epoch)
+
+            # Notify removed user if online
+            rh = await self.server.online_users.get_user_socket(removed_user)
+            if rh:
+                try:
+                    await rh.send_message(Message(MessageType.RESPONSE.value, "server", {
+                        "status": "info", "message": f"Foste removido do grupo {room}", "removed_from_group": room
+                    }))
+                except: pass
+
+            # Deliver updated key packages to remaining members
+            mems = self.server.storage.get_group_members(room, True)
+            remaining_names = [m["username"] for m in mems]
+            for mkp in member_key_packages:
+                target, blob = mkp.get("username"), mkp.get("encrypted_blob")
+                if target and blob:
+                    self.server.storage.store_group_key_package(room, epoch or 0, target, json.dumps(blob).encode('utf-8'))
+                    h = await self.server.online_users.get_user_socket(target)
+                    if h:
+                        try:
+                            await h.send_message(Message(MessageType.GROUP_KEY_PACKAGE.value, "server", {
+                                "room_name": room, "epoch": epoch or 0, "encrypted_blob": blob
+                            }))
+                        except: pass
+
+            # Broadcast GROUP_UPDATE so remaining members know who was removed and update co-path
+            upd = Message(MessageType.GROUP_UPDATE.value, self.username, {
+                "room_name": room, "epoch": epoch,
+                "public_tree": data.get("public_tree", {}),
+                "removed_user": removed_user, "members": remaining_names,
+            })
+            for m in mems:
+                if m["username"] == self.username: continue
+                h = await self.server.online_users.get_user_socket(m["username"])
+                if h:
+                    try: await h.send_message(upd)
+                    except: pass
+
+            return self._build_response(MessageType.RESPONSE, "server", {
+                "status": "success", "message": f"{removed_user} removido do grupo {room}"
+            }), None, False
 
         # 7. OFFLINE STORE
         if cmd == MessageType.OFFLINE_STORE.value:
