@@ -307,12 +307,21 @@ class ClientHandler:
                 self.server.storage.update_last_login(self.device_id)
                 _sec_ok(f"AUTH_OK  user={username!r}  addr={self.address}  device_id={self.device_id}  p2p_port={p2p_port}")
 
-                # TreeKEM KeyPackages
+                # TreeKEM KeyPackages — fetch, deliver, then delete to prevent
+                # stale-key InvalidTag on future logins after key rotation.
                 packages = self.server.storage.get_key_packages_for_user(username)
                 pkg_list = []
                 for p in packages:
-                    try: pkg_list.append({"room_name": p["group_name"], "epoch": p["epoch"], "encrypted_blob": json.loads(p["encrypted_blob"].decode('utf-8'))})
-                    except: pass
+                    try:
+                        pkg_list.append({
+                            "room_name": p["group_name"],
+                            "epoch": p["epoch"],
+                            "encrypted_blob": json.loads(p["encrypted_blob"].decode('utf-8')),
+                        })
+                    except:
+                        pass
+                for p in packages:
+                    self.server.storage.delete_key_packages_for_user(username, p["group_name"])
 
                 return self._build_response(MessageType.RESPONSE, "server", {
                     "status": "success", "message": "Login OK", "username": username, "device_id": self.device_id, "nonce": nonce,

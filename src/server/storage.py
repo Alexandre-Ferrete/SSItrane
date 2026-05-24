@@ -61,6 +61,24 @@ class Storage:
             """)
             self.conn.commit()
 
+        # Ensure at most one key package per (group, epoch, user) — older duplicates
+        # (from the same epoch but a previous login with a now-rotated encryption key)
+        # cause InvalidTag on decryption.
+        try:
+            self.conn.execute("""
+                DELETE FROM group_key_packages WHERE id NOT IN (
+                    SELECT MAX(id) FROM group_key_packages
+                    GROUP BY group_name, epoch, username
+                )
+            """)
+            self.conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_unique "
+                "ON group_key_packages(group_name, epoch, username)"
+            )
+            self.conn.commit()
+        except Exception:
+            pass
+
     def _create_tables(self):
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -544,8 +562,11 @@ class Storage:
 
     def store_group_key_package(self, group_name: str, epoch: int, username: str, encrypted_blob: bytes) -> bool:
         with self._lock:
+            # INSERT OR REPLACE so a newer package always overwrites a stale one
+            # for the same (group, epoch, user) — prevents InvalidTag after key rotation.
             self.conn.execute(
-                "INSERT INTO group_key_packages (group_name, epoch, username, encrypted_blob) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO group_key_packages "
+                "(group_name, epoch, username, encrypted_blob) VALUES (?, ?, ?, ?)",
                 (group_name, epoch, username, encrypted_blob)
             )
             self.conn.commit()
