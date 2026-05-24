@@ -35,10 +35,12 @@ class ClientHandler:
         self.address = writer.get_extra_info("peername")
         self.username: Optional[str] = None
         self.running = False
+        self.device_id: Optional[int] = None      # ← inicializar aqui
+        self.nonce: Optional[str] = None          # ← idem
+        self.require_new_device: bool = False     # ← idem
 
-        # Session Security (Directional Keys for Ratchet)
-        self.tx_key: Optional[bytes] = None # Server -> Client
-        self.rx_key: Optional[bytes] = None # Client -> Server
+        self.tx_key: Optional[bytes] = None
+        self.rx_key: Optional[bytes] = None
 
     async def handle(self):
         self.running = True

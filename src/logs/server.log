@@ -77,3 +77,196 @@ EOFError
 2026-05-24 11:59:06,022 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 56060)
 2026-05-24 11:59:25,534 - INFO - [+] Nova conexão: ('127.0.0.1', 61427)
 2026-05-24 11:59:25,551 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 61427)
+2026-05-24 12:25:05,791 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:25:05,828 - ERROR - [!] Erro fatal no arranque do servidor: name 'MessageRouter' is not defined
+2026-05-24 12:25:11,668 - ERROR - Task exception was never retrieved
+future: <Task finished name='Task-2' coro=<ChatServer.start() done, defined at C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py:35> exception=NameError("name 'traceback' is not defined")>
+Traceback (most recent call last):
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py", line 58, in start
+    self.router = MessageRouter(self.online_users, self.storage)
+                  ^^^^^^^^^^^^^
+NameError: name 'MessageRouter' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py", line 68, in start
+    traceback.print_exc()
+    ^^^^^^^^^
+NameError: name 'traceback' is not defined. Did you forget to import 'traceback'?
+2026-05-24 12:27:17,338 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:27:17,346 - ERROR - [!] Erro fatal no arranque do servidor: name 'MessageRouter' is not defined
+2026-05-24 12:27:19,878 - ERROR - Task exception was never retrieved
+future: <Task finished name='Task-2' coro=<ChatServer.start() done, defined at C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py:35> exception=NameError("name 'traceback' is not defined")>
+Traceback (most recent call last):
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py", line 58, in start
+    self.router = MessageRouter(self.online_users, self.storage)
+                  ^^^^^^^^^^^^^
+NameError: name 'MessageRouter' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py", line 68, in start
+    traceback.print_exc()
+    ^^^^^^^^^
+NameError: name 'traceback' is not defined. Did you forget to import 'traceback'?
+2026-05-24 12:27:39,383 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:27:39,398 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:28:06,127 - INFO - [+] Nova conexão: ('127.0.0.1', 63423)
+2026-05-24 12:28:06,163 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 63423)
+2026-05-24 12:28:30,664 - ERROR - Unhandled exception in client_connected_cb
+transport: <_ProactorSocketTransport closed>
+Traceback (most recent call last):
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py", line 76, in handle_client
+    await handler.handle()
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\tcp_handler.py", line 57, in handle
+    response_message, auth_user, should_close = await self.process_command(request)
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\tcp_handler.py", line 282, in process_command
+    packages = self.server.storage.get_key_packages_for_user(username)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Storage' object has no attribute 'get_key_packages_for_user'
+2026-05-24 12:28:49,493 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:28:49,502 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:28:52,284 - INFO - [+] Nova conexão: ('127.0.0.1', 64442)
+2026-05-24 12:28:52,313 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 64442)
+2026-05-24 12:29:03,615 - ERROR - Unhandled exception in client_connected_cb
+transport: <_ProactorSocketTransport closed>
+Traceback (most recent call last):
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py", line 76, in handle_client
+    await handler.handle()
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\tcp_handler.py", line 57, in handle
+    response_message, auth_user, should_close = await self.process_command(request)
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\tcp_handler.py", line 282, in process_command
+    packages = self.server.storage.get_key_packages_for_user(username)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Storage' object has no attribute 'get_key_packages_for_user'
+2026-05-24 12:30:45,119 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:30:45,164 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:30:47,930 - INFO - [+] Nova conexão: ('127.0.0.1', 54876)
+2026-05-24 12:30:47,963 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 54876)
+2026-05-24 12:30:57,985 - ERROR - Unhandled exception in client_connected_cb
+transport: <_ProactorSocketTransport closed>
+Traceback (most recent call last):
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py", line 76, in handle_client
+    await handler.handle()
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\tcp_handler.py", line 57, in handle
+    response_message, auth_user, should_close = await self.process_command(request)
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\tcp_handler.py", line 333, in process_command
+    if cmd == MessageType.GROUP_INIT.value:
+              ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'MessageType' has no attribute 'GROUP_INIT'
+2026-05-24 12:31:43,816 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:31:43,825 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:31:46,295 - INFO - [+] Nova conexão: ('127.0.0.1', 55274)
+2026-05-24 12:31:46,327 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55274)
+2026-05-24 12:32:10,088 - INFO - [+] Nova conexão: ('127.0.0.1', 55279)
+2026-05-24 12:32:10,106 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55279)
+2026-05-24 12:33:26,044 - INFO - [+] Nova conexão: ('127.0.0.1', 55283)
+2026-05-24 12:33:26,062 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55283)
+2026-05-24 12:33:44,293 - INFO - [+] Nova conexão: ('127.0.0.1', 55286)
+2026-05-24 12:33:44,309 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55286)
+2026-05-24 12:35:14,773 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:35:14,782 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:35:18,725 - INFO - [+] Nova conexão: ('127.0.0.1', 60980)
+2026-05-24 12:35:18,757 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 60980)
+2026-05-24 12:35:32,854 - INFO - [+] Nova conexão: ('127.0.0.1', 60984)
+2026-05-24 12:35:32,869 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 60984)
+2026-05-24 12:35:49,893 - INFO - [+] Nova conexão: ('127.0.0.1', 51322)
+2026-05-24 12:35:49,910 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51322)
+2026-05-24 12:36:11,277 - INFO - [+] Nova conexão: ('127.0.0.1', 54268)
+2026-05-24 12:36:11,295 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 54268)
+2026-05-24 12:36:21,992 - INFO - [+] Nova conexão: ('127.0.0.1', 54273)
+2026-05-24 12:36:22,009 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 54273)
+2026-05-24 12:36:52,775 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:36:52,783 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:36:55,751 - INFO - [+] Nova conexão: ('127.0.0.1', 51906)
+2026-05-24 12:36:55,783 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51906)
+2026-05-24 12:37:16,069 - INFO - [+] Nova conexão: ('127.0.0.1', 64789)
+2026-05-24 12:37:16,085 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 64789)
+2026-05-24 12:37:42,520 - ERROR - [!] Password incorreta. Encerrando.
+2026-05-24 12:37:42,528 - ERROR - Task exception was never retrieved
+future: <Task finished name='Task-2' coro=<ChatServer.start() done, defined at C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py:36> exception=SystemExit(1)>
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\__main__.py", line 12, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 706, in run_until_complete
+    self.run_forever()
+    ~~~~~~~~~~~~~~~~^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 677, in run_forever
+    self._run_once()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 2057, in _run_once
+    handle._run()
+    ~~~~~~~~~~~^^
+  File "C:\Python314\Lib\asyncio\events.py", line 94, in _run
+    self._context.run(self._callback, *self._args)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alexa\Documents\GitHub\SSItrane\src\server\server.py", line 41, in start
+    sys.exit(1)
+    ~~~~~~~~^^^
+SystemExit: 1
+2026-05-24 12:37:45,315 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:37:45,381 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:37:48,704 - INFO - [+] Nova conexão: ('127.0.0.1', 64802)
+2026-05-24 12:37:48,734 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 64802)
+2026-05-24 12:37:57,992 - INFO - [+] Nova conexão: ('127.0.0.1', 64805)
+2026-05-24 12:37:58,010 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 64805)
+2026-05-24 12:38:14,904 - INFO - [+] Nova conexão: ('127.0.0.1', 64808)
+2026-05-24 12:38:14,923 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 64808)
+2026-05-24 12:38:37,777 - INFO - [+] Nova conexão: ('127.0.0.1', 55671)
+2026-05-24 12:38:37,793 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55671)
+2026-05-24 12:38:42,299 - INFO - [+] Nova conexão: ('127.0.0.1', 55674)
+2026-05-24 12:38:42,314 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55674)
+2026-05-24 12:38:53,633 - INFO - [+] Nova conexão: ('127.0.0.1', 50182)
+2026-05-24 12:38:53,663 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 50182)
+2026-05-24 12:39:01,961 - INFO - [+] Nova conexão: ('127.0.0.1', 50186)
+2026-05-24 12:39:01,980 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 50186)
+2026-05-24 12:39:56,006 - INFO - [+] Nova conexão: ('127.0.0.1', 56538)
+2026-05-24 12:39:56,022 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 56538)
+2026-05-24 12:40:07,564 - INFO - [+] Nova conexão: ('127.0.0.1', 51513)
+2026-05-24 12:40:07,583 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51513)
+2026-05-24 12:40:13,662 - INFO - [+] Nova conexão: ('127.0.0.1', 51516)
+2026-05-24 12:40:13,678 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51516)
+2026-05-24 12:40:21,939 - INFO - [+] Nova conexão: ('127.0.0.1', 51520)
+2026-05-24 12:40:21,955 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 51520)
+2026-05-24 12:44:57,994 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:44:58,003 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:45:02,441 - INFO - [+] Nova conexão: ('127.0.0.1', 59733)
+2026-05-24 12:45:02,470 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 59733)
+2026-05-24 12:46:55,724 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:46:55,733 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:46:57,645 - INFO - [+] Nova conexão: ('127.0.0.1', 65497)
+2026-05-24 12:46:57,675 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 65497)
+2026-05-24 12:47:10,605 - INFO - [+] Nova conexão: ('127.0.0.1', 65502)
+2026-05-24 12:47:10,623 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 65502)
+2026-05-24 12:47:26,333 - INFO - [*] Chaves do servidor já existem. A carregar...
+2026-05-24 12:47:26,343 - INFO - [*] Servidor à escuta em ('0.0.0.0', 5555)
+2026-05-24 12:47:28,642 - INFO - [+] Nova conexão: ('127.0.0.1', 65508)
+2026-05-24 12:47:28,674 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 65508)
+2026-05-24 12:47:34,180 - INFO - [+] Nova conexão: ('127.0.0.1', 65511)
+2026-05-24 12:47:34,196 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 65511)
+2026-05-24 12:48:20,207 - INFO - [+] Nova conexão: ('127.0.0.1', 55993)
+2026-05-24 12:48:20,223 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55993)
+2026-05-24 12:48:26,527 - INFO - [+] Nova conexão: ('127.0.0.1', 55996)
+2026-05-24 12:48:26,543 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55996)
+2026-05-24 12:48:39,078 - INFO - [+] Nova conexão: ('127.0.0.1', 55999)
+2026-05-24 12:48:39,096 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 55999)
+2026-05-24 12:48:46,326 - INFO - [+] Nova conexão: ('127.0.0.1', 56002)
+2026-05-24 12:48:46,344 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 56002)
+2026-05-24 12:48:59,294 - INFO - [+] Nova conexão: ('127.0.0.1', 57951)
+2026-05-24 12:48:59,313 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 57951)
+2026-05-24 12:49:08,484 - INFO - [+] Nova conexão: ('127.0.0.1', 57954)
+2026-05-24 12:49:08,500 - INFO - [*] Canal seguro AES-GCM (TX/RX Ratchet) estabelecido com ('127.0.0.1', 57954)

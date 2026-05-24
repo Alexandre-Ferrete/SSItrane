@@ -147,34 +147,78 @@ class ChatClient:
                 if not msg: break
                 peer = msg.sender
                 if not peer or peer == "unknown": continue
+
                 if msg.msg_type == MessageType.P2P_HELLO.value:
-                    if self.session_manager.verify_peer_handshake(peer, msg.payload["pub_key"], msg.payload["signature"], msg.payload["cert"]):
-                        is_initiator = (peer in self.peer_sessions and self.peer_sessions[peer]["socket"] == sock)
-                        if not is_initiator:
-                            h_data = self.session_manager.get_handshake_data(peer)
-                            self.session_manager.process_peer_handshake(peer, msg.payload["pub_key"])
-                            self._send_packet(sock, Message(MessageType.P2P_HELLO.value, self.username, h_data))
-                            self.peer_sessions[peer] = {"socket": sock}; print(f"[*] Sessão P2P com {peer} estabelecida (recetor).")
-                        else:
-                            self.session_manager.process_peer_handshake(peer, msg.payload["pub_key"])
-                            print(f"[*] Sessão P2P com {peer} estabelecida (iniciador).")
-                        if peer in self.pending_chats:
-                            txt = self.pending_chats.pop(peer); print(f"[*] A enviar mensagem pendente para {peer}...")
-                            payload = self.session_manager.encrypt_for_peer(peer, txt)
-                            if payload: self._send_packet(sock, Message(MessageType.P2P_MSG.value, self.username, payload))
+                    if not self.session_manager.verify_peer_handshake(
+                        peer,
+                        msg.payload["pub_key"],
+                        msg.payload["signature"],
+                        msg.payload["cert"]
+                    ):
+                        print(f"[!] Handshake inválido de {peer}")
+                        break
+
+                    already_has_session = (
+                        peer in self.peer_sessions and
+                        "session_ready" in self.peer_sessions[peer]
+                    )
+
+                    if already_has_session:
+                        # Já processámos este handshake
+                        continue
+
+                    is_initiator = (
+                        peer in self.peer_sessions and
+                        self.peer_sessions[peer].get("socket") == sock and
+                        not self.peer_sessions[peer].get("session_ready")
+                    )
+
+                    if is_initiator:
+                        # Somos o iniciador: processar a resposta do peer
+                        self.session_manager.process_peer_handshake(peer, msg.payload["pub_key"])
+                        self.peer_sessions[peer] = {"socket": sock, "session_ready": True}
+                        print(f"[*] Sessão P2P com {peer} estabelecida (iniciador).")
+                    else:
+                        # Somos o recetor: responder com o nosso P2P_HELLO
+                        h_data = self.session_manager.get_handshake_data(peer)
+                        self.session_manager.process_peer_handshake(peer, msg.payload["pub_key"])
+                        self._send_packet(sock, Message(MessageType.P2P_HELLO.value, self.username, h_data))
+                        self.peer_sessions[peer] = {"socket": sock, "session_ready": True}
+                        print(f"[*] Sessão P2P com {peer} estabelecida (recetor).")
+
+                    # Enviar mensagem pendente se existir
+                    if peer in self.pending_chats:
+                        txt = self.pending_chats.pop(peer)
+                        print(f"[*] A enviar mensagem pendente para {peer}...")
+                        payload = self.session_manager.encrypt_for_peer(peer, txt)
+                        if payload:
+                            self._send_packet(sock, Message(MessageType.P2P_MSG.value, self.username, payload))
+
                 elif msg.msg_type == MessageType.P2P_MSG.value:
                     text = self.session_manager.decrypt_from_peer(peer, msg.payload)
-                    if text: print(f"\n[{peer}]: {text}")
+                    if text:
+                        print(f"\n[{peer}]: {text}")
+
                 elif msg.msg_type == MessageType.RATCHET_CONTRIBUTION.value:
-                    new_key, reply = self.session_manager.verify_and_apply_ratchet(peer, msg.payload["salt_contribution"], msg.payload["signature"])
+                    new_key, reply = self.session_manager.verify_and_apply_ratchet(
+                        peer,
+                        msg.payload["salt_contribution"],
+                        msg.payload["signature"]
+                    )
                     if new_key:
-                        self.session_manager.active_sessions[peer] = new_key; print(f"[*] Ratchet P2P concluído com {peer}.")
-                        if reply: self._send_packet(sock, Message(MessageType.RATCHET_CONTRIBUTION.value, self.username, reply))
-        except: pass
+                        self.session_manager.active_sessions[peer] = new_key
+                        print(f"[*] Ratchet P2P concluído com {peer}.")
+                        if reply:
+                            self._send_packet(sock, Message(MessageType.RATCHET_CONTRIBUTION.value, self.username, reply))
+
+        except Exception as e:
+            print(f"[!] Erro na conexão P2P com {peer}: {e}")
+            traceback.print_exc()
         finally:
-            if peer: 
+            if peer:
                 with self.global_lock:
-                    if peer in self.peer_sessions and self.peer_sessions[peer]["socket"] == sock: del self.peer_sessions[peer]
+                    if peer in self.peer_sessions and self.peer_sessions[peer].get("socket") == sock:
+                        del self.peer_sessions[peer]
             sock.close()
 
     def connect_to_peer(self, username, ip, port):
@@ -216,31 +260,75 @@ class ChatClient:
                         else: print(f"\n[*] SUCESSO: {texto}")
                     else: print(f"\n[*] ERRO: {texto}")
                 elif msg.msg_type == MessageType.IP_RESPONSE.value:
-                    target, purpose = msg.payload.get('target_user'), msg.payload.get('purpose', '')
+                    target = msg.payload.get('target_user')
+                    purpose = msg.payload.get('purpose', '')
+
                     if purpose.startswith("group_create:"):
                         room = purpose.split(":", 1)[1]
                         if room in self.pending_group_actions:
                             p = self.pending_group_actions[room]
                             if msg.payload.get("status") == "success" and msg.payload.get("encryption_key"):
-                                p["member_keys"].append({"username": target, "enc_pub_key": msg.payload["encryption_key"]})
-                            else: print(f"[!] Erro: {target} offline. Grupo cancelado."); del self.pending_group_actions[room]; continue
+                                p["member_keys"].append({
+                                    "username": target,
+                                    "enc_pub_key": msg.payload["encryption_key"]
+                                })
+                            else:
+                                print(f"[!] Erro: {target} offline. Grupo cancelado.")
+                                del self.pending_group_actions[room]
+                                continue
                             if len(p["member_keys"]) == len(p["members"]):
                                 all_m = [{"username": self.username, "enc_pub_key": base64.b64encode(self.session_manager.get_encryption_key_raw()).decode('utf-8')}] + p["member_keys"]
                                 init_p = self.session_manager.initialize_tree_as_creator(room, all_m, self.iden_kdf)
-                                if init_p: init_p["members"] = [m["username"] for m in all_m]; self._send_packet(self.server_socket, Message(MessageType.GROUP_INIT.value, self.username, init_p))
+                                if init_p:
+                                    init_p["members"] = [m["username"] for m in all_m]
+                                    self._send_packet(self.server_socket, Message(MessageType.GROUP_INIT.value, self.username, init_p))
                                 del self.pending_group_actions[room]
+
                     elif purpose.startswith("group_add:"):
                         room = purpose.split(":", 1)[1]
                         if msg.payload.get("encryption_key"):
                             add_p = self.session_manager.add_member_to_tree(room, target, msg.payload["encryption_key"], self.iden_kdf)
-                            if add_p: self._send_packet(self.server_socket, Message(MessageType.GROUP_ADD_MEMBER.value, self.username, add_p))
+                            if add_p:
+                                self._send_packet(self.server_socket, Message(MessageType.GROUP_ADD_MEMBER.value, self.username, add_p))
+
                     else:
-                        ip, port = msg.payload.get('ip'), msg.payload.get('port')
-                        if ip: self.connect_to_peer(target, ip, port)
+                        ip = msg.payload.get('ip')
+                        port = msg.payload.get('port')
+
+                        if ip and port:
+                            # peer online — ligar P2P
+                            self.connect_to_peer(target, ip, port)
                         elif target in self.pending_chats:
-                            print(f"[*] {target} está offline. A guardar mensagem segura...")
-                            enc = self.session_manager.encrypt_offline(msg.payload.get("encryption_key"), self.pending_chats.pop(target))
-                            if enc: self._send_packet(self.server_socket, Message(MessageType.OFFLINE_STORE.value, self.username, {"action": "store", "recipient": target, "content": enc["content"], "nonce": enc["nonce"], "tag": enc["tag"], "ephemeral_key": enc["ephemeral_key"]}))
+                            # peer offline — tentar enviar mensagem cifrada
+                            enc_key = msg.payload.get("encryption_key")
+                            if not enc_key:
+                                print(f"[!] {target} está offline e não tem chave de encriptação registada. Mensagem cancelada.")
+                                self.pending_chats.pop(target, None)
+                            else:
+                                print(f"[*] {target} está offline. A guardar mensagem segura...")
+                                try:
+                                    enc = self.session_manager.encrypt_offline(enc_key, self.pending_chats.pop(target))
+                                    if enc:
+                                        self._send_packet(self.server_socket, Message(
+                                            MessageType.OFFLINE_STORE.value,
+                                            self.username,
+                                            {
+                                                "action": "store",
+                                                "recipient": target,
+                                                "content": enc["content"],
+                                                "nonce": enc["nonce"],
+                                                "tag": enc["tag"],
+                                                "ephemeral_key": enc["ephemeral_key"]
+                                            }
+                                        ))
+                                    else:
+                                        print(f"[!] Falha ao cifrar mensagem offline para {target}.")
+                                except Exception as e:
+                                    print(f"[!] Erro ao enviar mensagem offline para {target}: {e}")
+                                    traceback.print_exc()
+                                    self.pending_chats.pop(target, None)
+                        else:
+                            print(f"[!] {target} está offline.")
                 elif msg.msg_type == MessageType.GROUP_KEY_PACKAGE.value:
                     if self.session_manager.process_key_package(msg.payload["room_name"], msg.payload["epoch"], msg.payload["encrypted_blob"], self.iden_kdf):
                         self._send_packet(self.server_socket, Message(MessageType.GROUP_INFO.value, self.username, {"room_name": msg.payload["room_name"]}))

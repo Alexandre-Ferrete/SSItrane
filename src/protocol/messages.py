@@ -38,11 +38,20 @@ class MessageType(Enum):
     UPDATE_KEYS = "update_keys"
 
     # Ratchet (rotação de chaves via servidor)
-    RATCHET_REQUEST = "ratchet_request"   # Cliente -> Servidor: pedir novo salt
-    RATCHET_SALT = "ratchet_salt"         # Servidor -> Clientes: novo salt gerado
+    RATCHET_REQUEST = "ratchet_request"
+    RATCHET_SALT = "ratchet_salt"
 
     # Ratchet P2P (directo entre clientes)
     RATCHET_CONTRIBUTION = "ratchet_contribution"
+
+    # TreeKEM / Grupos
+    GROUP_INIT = "group_init"
+    GROUP_MSG = "group_msg"
+    GROUP_LIST = "group_list"
+    GROUP_INFO = "group_info"
+    GROUP_UPDATE = "group_update"
+    GROUP_ADD_MEMBER = "group_add_member"
+    GROUP_KEY_PACKAGE = "group_key_package"
 
 
 @dataclass

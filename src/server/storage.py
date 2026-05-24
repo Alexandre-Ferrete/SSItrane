@@ -3,11 +3,18 @@ import sqlite3
 from typing import Optional, List, Dict, Any
 
 
+import os
+import sqlite3
+import threading
+from typing import Optional, List, Dict, Any
+
+
 class Storage:
     def __init__(self, data_dir: str = "data"):
         self.data_dir = data_dir
         self.db_path = os.path.join(data_dir, "server.db")
         self.conn: Optional[sqlite3.Connection] = None
+        self._lock = threading.Lock()          # ← lock global para sqlite
 
     def initialize(self):
         os.makedirs(self.data_dir, exist_ok=True)
@@ -117,11 +124,12 @@ class Storage:
     # USER FUNCTIONS
     def create_user(self, username: str, password_hash: str) -> bool:
         try:
-            self.conn.execute(
-                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                (username, password_hash)
-            )
-            self.conn.commit()
+            with self._lock:
+                self.conn.execute(
+                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                    (username, password_hash)
+                )
+                self.conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
@@ -149,13 +157,15 @@ class Storage:
         return None
 
     # DEVICE FUNCTIONS
-    def add_device(self, username: str, public_key: bytes, certificate: bytes, salt: bytes, encryption_key: bytes = None) -> bool:
+    def add_device(self, username: str, public_key: bytes, certificate: bytes,
+                   salt: bytes, encryption_key: bytes = None) -> bool:
         try:
-            self.conn.execute(
-                "INSERT INTO user_devices (username, public_key, certificate, salt, encryption_key) VALUES (?, ?, ?, ?, ?)",
-                (username, public_key, certificate, salt, encryption_key)
-            )
-            self.conn.commit()
+            with self._lock:
+                self.conn.execute(
+                    "INSERT INTO user_devices (username, public_key, certificate, salt, encryption_key) VALUES (?, ?, ?, ?, ?)",
+                    (username, public_key, certificate, salt, encryption_key)
+                )
+                self.conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
@@ -188,18 +198,20 @@ class Storage:
         return None
 
     def update_last_login(self, device_id: int):
-        self.conn.execute(
-            "UPDATE user_devices SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
-            (device_id,)
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE user_devices SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
+                (device_id,)
+            )
+            self.conn.commit()
 
     def update_device_encryption_key(self, device_id: int, encryption_key: bytes) -> bool:
-        cursor = self.conn.execute(
-            "UPDATE user_devices SET encryption_key = ? WHERE id = ?",
-            (encryption_key, device_id)
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.execute(
+                "UPDATE user_devices SET encryption_key = ? WHERE id = ?",
+                (encryption_key, device_id)
+            )
+            self.conn.commit()
         return cursor.rowcount > 0
 
     def delete_device(self, device_id: int) -> bool:
@@ -239,13 +251,15 @@ class Storage:
 
     # OFFLINE MESSAGE FUNCTIONS
     def store_offline_message(self, recipient: str, sender: str, content: bytes,
-                          nonce: Optional[bytes] = None, tag: Optional[bytes] = None,
-                          device_id: Optional[int] = None, ephemeral_key: Optional[bytes] = None) -> int:
-        cursor = self.conn.execute(
-            "INSERT INTO offline_messages (device_id, recipient, sender, encrypted_content, nonce, tag, message_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (device_id, recipient, sender, content, nonce, tag, ephemeral_key)
-        )
-        self.conn.commit()
+                              nonce: Optional[bytes] = None, tag: Optional[bytes] = None,
+                              device_id: Optional[int] = None,
+                              ephemeral_key: Optional[bytes] = None) -> int:
+        with self._lock:
+            cursor = self.conn.execute(
+                "INSERT INTO offline_messages (device_id, recipient, sender, encrypted_content, nonce, tag, message_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (device_id, recipient, sender, content, nonce, tag, ephemeral_key)
+            )
+            self.conn.commit()
         return cursor.lastrowid
 
     def get_offline_messages(self, recipient: str, device_id: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -387,3 +401,45 @@ class Storage:
             (username,)
         )
         return [row[0] for row in cursor.fetchall()]
+
+    def get_key_packages_for_user(self, username: str) -> list:
+        return []
+
+    def store_group_key_package(self, group_name: str, epoch: int, username: str, encrypted_blob: bytes) -> bool:
+        return False
+
+    def create_group(self, name: str, created_by: str, total_leaves: int) -> bool:
+        return False
+
+    def store_tree_node(self, group_name: str, node_index: int, public_key: bytes) -> bool:
+        return False
+
+    def add_group_member(self, group_name: str, username: str, leaf_index: int) -> bool:
+        return False
+
+    def is_group_member(self, group_name: str, username: str) -> bool:
+        return False
+
+    def get_group_members(self, group_name: str, only_active: bool = False) -> list:
+        return []
+
+    def get_group(self, group_name: str):
+        return None
+
+    def get_tree_nodes(self, group_name: str) -> list:
+        return []
+
+    def update_group_epoch(self, group_name: str, epoch: int) -> bool:
+        return False
+
+    def list_user_groups(self, username: str) -> list:
+        return []
+
+    def get_group_messages_for_user(self, username: str) -> list:
+        return []
+
+    def store_group_message(self, group_name: str, recipient: str, sender: str, epoch: int, content: bytes, nonce: bytes, tag: bytes) -> bool:
+        return False
+
+    def clear_group_messages_for_user(self, username: str) -> int:
+        return 0
