@@ -1,14 +1,3 @@
-"""
-Helpers
-=======
-Utility functions for the project.
-
-TODO:
-- Logging setup
-- Encoding/decoding helpers
-- Validation helpers
-- Password hashing
-"""
 
 import os
 from typing import Optional
@@ -139,7 +128,7 @@ def hash_password(password: str, salt: Optional[bytes] = None) -> tuple:
         algorithm=hashes.SHA256(),
         length=32,
         salt=salt,
-        iterations=480000,
+        iterations=600000,
     )
 
     password_hash = kdf.derive(password.encode())
@@ -162,7 +151,7 @@ def verify_password(password: str, hash: str, salt: str) -> bool:
         algorithm=hashes.SHA256(),
         length=32,
         salt=bytes.fromhex(salt),
-        iterations=480000,
+        iterations=600000,
     )
 
     try:
@@ -485,4 +474,3 @@ PASSWORD_MAX_LENGTH = 100
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 32
 
-# =========================================================================

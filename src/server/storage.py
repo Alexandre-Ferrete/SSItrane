@@ -14,7 +14,7 @@ class Storage:
         self.data_dir = data_dir
         self.db_path = os.path.join(data_dir, "server.db")
         self.conn: Optional[sqlite3.Connection] = None
-        self._lock = threading.Lock()          # ← lock global para sqlite
+        self._lock = threading.Lock()          # lock global para sqlite
 
     def initialize(self):
         os.makedirs(self.data_dir, exist_ok=True)

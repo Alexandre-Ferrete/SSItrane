@@ -25,7 +25,7 @@ def derive_key_PBKDF2HMAC(password: str, salt: Optional[bytes] = None):
         algorithm=hashes.SHA256(),
         length=32,
         salt=salt,
-        iterations=100000
+        iterations=600000
     )
     password_kdf = kdf.derive(password.encode("utf-8"))
     return password_kdf, salt
