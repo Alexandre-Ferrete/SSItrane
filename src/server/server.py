@@ -9,7 +9,7 @@ from .storage import Storage
 from .user_manager import OnlineUserManager
 from .tcp_handler import ClientHandler
 from .server_keys_generator import generate_server_keys, load_server_pubkey, load_server_privkey
-from .message_router import MessageRouter
+from .message_route import MessageRouter
 from utils.helpers import setup_logging, get_logger
 
 _src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
