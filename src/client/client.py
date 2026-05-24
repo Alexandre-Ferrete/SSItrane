@@ -298,19 +298,24 @@ class ChatClient:
                     if sc == "create" and args:
                         gp = [m for m in args.split(" ") if m]
                         if len(gp) < 2: continue
-                        gn, others = gp[0], [m for m in gp[1:] if m != self.username]; print(f"[*] A criar grupo '{gn}'..."); self.pending_group_actions[gn] = {"type": "create", "members": others, "member_keys": []}
+                        gn, others = gp[0], [m for m in gp[1:] if m != self.username]; print(f"[*] A criar grupo '{gn}'...");
+                        self.pending_group_actions[gn] = {"type": "create", "members": others, "member_keys": []}
                         for m in others: self._send_packet(self.server_socket, Message(MessageType.GET_IP.value, self.username, {"target_user": m, "purpose": f"group_create:{gn}"}))
                     elif sc == "msg" and args:
                         r_p = args.split(" ", 1)
-                        if len(r_p) == 2:
+                        if len(r_p) == 2:  # já correto, mas o crash vem de args vazio
                             enc = self.session_manager.encrypt_for_group(r_p[0], r_p[1])
                             if enc: self._send_packet(self.server_socket, Message(MessageType.GROUP_MSG.value, self.username, enc))
-                    elif sc == "add" and args:
-                        a_p = args.split(" "); 
-                        if len(a_p) == 2: self._send_packet(self.server_socket, Message(MessageType.GET_IP.value, self.username, {"target_user": a_p[1], "purpose": f"group_add:{a_p[0]}"}))
-                    elif sc == "list": self._send_packet(self.server_socket, Message(MessageType.GROUP_LIST.value, self.username, {}))
-                    elif sc == "info": self._send_packet(self.server_socket, Message(MessageType.GROUP_INFO.value, self.username, {"room_name": args.strip()}))
-                elif cmd == "/list": self._send_packet(self.server_socket, Message(MessageType.GET_USERS.value, self.username, {}))
+                            else:
+                                print("[!] Uso: /group msg <sala> <mensagem>")  # faltava este else
+                    elif sc == "list":
+                        self._send_packet(self.server_socket, Message(MessageType.GROUP_LIST.value, self.username, {}))
+                    elif sc == "info":
+                        if not args:  # args pode ser "" e o strip() não chega
+                            print("[!] Uso: /group info <sala>")
+                        else:
+                            self._send_packet(self.server_socket, Message(MessageType.GROUP_INFO.value, self.username, {"room_name": args.strip()}))
+                    elif cmd == "/list": self._send_packet(self.server_socket, Message(MessageType.GET_USERS.value, self.username, {}))
                 elif cmd == "/exit": self.running = False; break
             except EOFError: break
             except Exception as e: print(f"[!] Erro no CLI: {e}")

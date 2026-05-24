@@ -397,41 +397,98 @@ class SessionManager:
             state = self.group_states[room]
             members = state.get("members_cache", [self.username])
             if new_user in members: return {}
-            
-            # Cálculo de novo leaf_index (MLS simplificado)
+
             new_leaf_idx = state["total_leaves"] + len(members)
             if new_leaf_idx >= state["total_leaves"] * 2:
-                # Expansão: total_leaves deve dobrar
                 state["total_leaves"] *= 2
-            
+
             state["tree_pub_keys"][new_leaf_idx] = base64.b64decode(new_user_enc_pub_b64)
             my_idx = state["my_leaf_index"]
-            new_leaf_priv = x25519.X25519PrivateKey.generate()
-            state["tree_priv_keys"][my_idx] = new_leaf_priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
-            state["tree_pub_keys"][my_idx] = new_leaf_priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-            
-            path, updates, curr_idx = self._get_path(my_idx), {}, my_idx
-            for parent in path:
+
+            # Regenerar caminho do admin
+            path_secrets = {}  # {node_idx: secret_bytes}
+            curr_idx = my_idx
+            for parent in self._get_path(my_idx):
                 new_priv = x25519.X25519PrivateKey.generate()
-                state["tree_priv_keys"][parent] = new_priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
-                state["tree_pub_keys"][parent] = new_priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-                sibling = curr_idx ^ 1
-                if sibling in state["tree_pub_keys"]:
-                    shared = x25519.X25519PrivateKey.from_private_bytes(state["tree_priv_keys"][curr_idx]).exchange(x25519.X25519PublicKey.from_public_bytes(state["tree_pub_keys"][sibling]))
-                    key = HKDF(hashes.SHA256(), 32, None, f"TreeUpdate:{parent}".encode()).derive(shared)
-                    c, n, t = symmetric.encrypt(key, state["tree_priv_keys"][parent])
-                    updates[str(parent)] = {"from_node": curr_idx, "content": base64.b64encode(c).decode('utf-8'), "nonce": base64.b64encode(n).decode('utf-8'), "tag": base64.b64encode(t).decode('utf-8')}
+                priv_raw = new_priv.private_bytes(
+                    serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption()
+                )
+                state["tree_priv_keys"][parent] = priv_raw
+                state["tree_pub_keys"][parent] = new_priv.public_key().public_bytes(
+                    serialization.Encoding.Raw, serialization.PublicFormat.Raw
+                )
+                path_secrets[parent] = priv_raw
                 curr_idx = parent
 
             state["epoch"] += 1
             state["group_key"] = self.derive_group_key(state["tree_priv_keys"][1], state["epoch"])
-            members.append(new_user); state["members_cache"] = members
+            members.append(new_user)
+            state["members_cache"] = members
             self._save_group_states(password_kdf)
-            
-            secrets = {str(k): base64.b64encode(v).decode('utf-8') for k,v in state["tree_priv_keys"].items() if k in self._get_path(new_leaf_idx)}
-            blob = self.encrypt_group_key_for_member(json.dumps({"leaf_index": new_leaf_idx, "total_leaves": state["total_leaves"], "path_secrets": secrets}).encode('utf-8'), new_user_enc_pub_b64)
-            
-            return {"room_name": room, "username": new_user, "epoch": state["epoch"], "total_leaves": state["total_leaves"], "public_tree": {str(k): base64.b64encode(v).decode('utf-8') for k,v in state["tree_pub_keys"].items()}, "key_packages": [{"username": new_user, "encrypted_blob": blob, "leaf_index": new_leaf_idx}], "path_updates": updates}
+
+            # Novo: para cada membro existente, cifrar o segredo do nó
+            # mais baixo do seu caminho que foi regenerado
+            member_key_packages = []
+            for member_username in members:
+                if member_username in (self.username, new_user):
+                    continue
+                # Encontrar o nó regenerado mais baixo no caminho deste membro
+                member_leaf = self._get_member_leaf(state, member_username)
+                if member_leaf is None:
+                    continue
+                member_path = self._get_path(member_leaf)
+                # Nó de intersecção: o mais baixo do caminho do membro que está em path_secrets
+                intersect_node = None
+                for node in reversed(member_path):  # reversed = do mais baixo ao mais alto
+                    if node in path_secrets:
+                        intersect_node = node
+                        break
+                if intersect_node is None:
+                    continue
+                # Cifrar o segredo desse nó para o membro
+                member_enc_pub = self._get_member_enc_pub(state, member_username)
+                if not member_enc_pub:
+                    continue
+                blob = self.encrypt_group_key_for_member(
+                    json.dumps({
+                        "node_index": intersect_node,
+                        "node_secret": base64.b64encode(path_secrets[intersect_node]).decode('utf-8'),
+                        "epoch": state["epoch"]
+                    }).encode('utf-8'),
+                    member_enc_pub
+                )
+                member_key_packages.append({"username": member_username, "encrypted_blob": blob})
+
+            # KeyPackage para o novo membro (caminho completo até raiz)
+            secrets_for_new = {
+                str(k): base64.b64encode(v).decode('utf-8')
+                for k, v in path_secrets.items()
+                if k in self._get_path(new_leaf_idx)
+            }
+            blob_new = self.encrypt_group_key_for_member(
+                json.dumps({
+                    "leaf_index": new_leaf_idx,
+                    "total_leaves": state["total_leaves"],
+                    "path_secrets": secrets_for_new
+                }).encode('utf-8'),
+                new_user_enc_pub_b64
+            )
+
+            pub_tree_update = {
+                str(k): base64.b64encode(v).decode('utf-8')
+                for k, v in state["tree_pub_keys"].items()
+                if k in path_secrets or k == new_leaf_idx
+            }
+
+            return {
+                "room_name": room,
+                "username": new_user,
+                "epoch": state["epoch"],
+                "total_leaves": state["total_leaves"],
+                "public_tree": pub_tree_update,
+                "key_packages": [{"username": new_user, "encrypted_blob": blob_new, "leaf_index": new_leaf_idx}],
+                "member_key_packages": member_key_packages,  # novo campo
+            }
         except:
             traceback.print_exc()
             return {}

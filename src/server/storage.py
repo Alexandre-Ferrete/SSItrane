@@ -54,36 +54,6 @@ class Storage:
             """)
             self.conn.commit()
 
-        try:
-            self.conn.execute("ALTER TABLE groups ADD COLUMN epoch INTEGER DEFAULT 0")
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
-        try:
-            self.conn.execute("ALTER TABLE groups ADD COLUMN total_leaves INTEGER DEFAULT 0")
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
-        try:
-            self.conn.execute("ALTER TABLE group_messages ADD COLUMN epoch INTEGER DEFAULT 0")
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
-        try:
-            self.conn.execute("ALTER TABLE group_messages ADD COLUMN recipient TEXT")
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
-        try:
-            self.conn.execute("ALTER TABLE group_members ADD COLUMN leaf_index INTEGER DEFAULT 0")
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
     def _create_tables(self):
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -121,64 +91,20 @@ class Storage:
         """)
 
         self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS groups (
+            CREATE TABLE IF NOT EXISTS rooms (
                 name TEXT PRIMARY KEY,
                 created_by TEXT NOT NULL,
-                epoch INTEGER DEFAULT 0,
-                total_leaves INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (created_by) REFERENCES users(username)
             )
         """)
 
         self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS group_members (
-                group_name TEXT NOT NULL,
+            CREATE TABLE IF NOT EXISTS room_members (
+                room_name TEXT NOT NULL,
                 username TEXT NOT NULL,
-                leaf_index INTEGER NOT NULL,
-                active INTEGER DEFAULT 1,
-                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (group_name, username),
-                FOREIGN KEY (group_name) REFERENCES groups(name),
+                PRIMARY KEY (room_name, username),
+                FOREIGN KEY (room_name) REFERENCES rooms(name),
                 FOREIGN KEY (username) REFERENCES users(username)
-            )
-        """)
-
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS tree_nodes (
-                group_name TEXT NOT NULL,
-                node_index INTEGER NOT NULL,
-                public_key BLOB NOT NULL,
-                PRIMARY KEY (group_name, node_index),
-                FOREIGN KEY (group_name) REFERENCES groups(name)
-            )
-        """)
-
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS group_key_packages (
-                group_name TEXT NOT NULL,
-                epoch INTEGER NOT NULL,
-                username TEXT NOT NULL,
-                encrypted_blob BLOB NOT NULL,
-                PRIMARY KEY (group_name, epoch, username),
-                FOREIGN KEY (group_name) REFERENCES groups(name),
-                FOREIGN KEY (username) REFERENCES users(username)
-            )
-        """)
-
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS group_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                group_name TEXT NOT NULL,
-                recipient TEXT NOT NULL,
-                sender TEXT NOT NULL,
-                epoch INTEGER NOT NULL,
-                encrypted_content BLOB NOT NULL,
-                nonce BLOB,
-                tag BLOB,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (group_name) REFERENCES groups(name),
-                FOREIGN KEY (recipient) REFERENCES users(username)
             )
         """)
 
@@ -236,7 +162,7 @@ class Storage:
 
     def get_devices(self, username: str) -> List[Dict[str, Any]]:
         cursor = self.conn.execute(
-            "SELECT id, public_key, certificate, encryption_key, salt, created_at, last_login FROM user_devices WHERE username = ? ORDER BY last_login DESC",
+            "SELECT id, public_key, certificate, encryption_key, salt, created_at, last_login FROM user_devices WHERE username = ?",
             (username,)
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -291,8 +217,7 @@ class Storage:
     def delete_user(self, username: str) -> bool:
         self.conn.execute("DELETE FROM offline_messages WHERE recipient = ?", (username,))
         self.conn.execute("DELETE FROM offline_messages WHERE sender = ?", (username,))
-        self.conn.execute("DELETE FROM group_members WHERE username = ?", (username,))
-        self.conn.execute("DELETE FROM group_key_packages WHERE username = ?", (username,))
+        self.conn.execute("DELETE FROM room_members WHERE username = ?", (username,))
         self.conn.execute("DELETE FROM user_devices WHERE username = ?", (username,))
         cursor = self.conn.execute("DELETE FROM users WHERE username = ?", (username,))
         self.conn.commit()
@@ -300,11 +225,8 @@ class Storage:
 
     def purge_all(self) -> bool:
         self.conn.execute("DELETE FROM offline_messages")
-        self.conn.execute("DELETE FROM group_members")
-        self.conn.execute("DELETE FROM group_key_packages")
-        self.conn.execute("DELETE FROM groups")
-        self.conn.execute("DELETE FROM tree_nodes")
-        self.conn.execute("DELETE FROM group_messages")
+        self.conn.execute("DELETE FROM room_members")
+        self.conn.execute("DELETE FROM rooms")
         self.conn.execute("DELETE FROM user_devices")
         self.conn.execute("DELETE FROM users")
         self.conn.commit()
@@ -391,129 +313,77 @@ class Storage:
         self.conn.commit()
         return cursor.rowcount
 
-    # GROUP FUNCTIONS
-    def create_group(self, name: str, created_by: str, total_leaves: int) -> bool:
+    # ROOM FUNCTIONS
+    def create_room(self, name: str, created_by: str) -> bool:
+        # Cria nova sala
+        try:
+            self.conn.execute("INSERT INTO rooms (name, created_by) VALUES (?, ?)", (name, created_by))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def delete_room(self, name: str) -> bool:
+        # Apaga sala e os seus membros
+        self.conn.execute("DELETE FROM room_members WHERE room_name = ?", (name,))
+        cursor = self.conn.execute("DELETE FROM rooms WHERE name = ?", (name,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_room(self, name: str) -> Optional[Dict[str, Any]]:
+        # Retorna sala pelo nome
+        cursor = self.conn.execute("SELECT name, created_by FROM rooms WHERE name = ?", (name,))
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+
+    def list_rooms(self) -> List[Dict[str, Any]]:
+        # Lista todas as salas
+        cursor = self.conn.execute("SELECT name, created_by FROM rooms")
+        return [dict(row) for row in cursor.fetchall()]
+
+    # ROOM MEMBER FUNCTIONS
+    def add_room_member(self, room_name: str, username: str) -> bool:
+        # Adiciona membro a uma sala
         try:
             self.conn.execute(
-                "INSERT INTO groups (name, created_by, epoch, total_leaves) VALUES (?, ?, 0, ?)",
-                (name, created_by, total_leaves)
+                "INSERT INTO room_members (room_name, username) VALUES (?, ?)",
+                (room_name, username)
             )
             self.conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
 
-    def update_group_epoch(self, group_name: str, new_epoch: int):
-        self.conn.execute(
-            "UPDATE groups SET epoch = ? WHERE name = ?",
-            (new_epoch, group_name)
+    def remove_room_member(self, room_name: str, username: str) -> bool:
+        # Remove membro de uma sala
+        cursor = self.conn.execute(
+            "DELETE FROM room_members WHERE room_name = ? AND username = ?",
+            (room_name, username)
         )
         self.conn.commit()
+        return cursor.rowcount > 0
 
-    def get_group(self, name: str) -> Optional[Dict[str, Any]]:
-        cursor = self.conn.execute("SELECT name, created_by, epoch, total_leaves FROM groups WHERE name = ?", (name,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-
-    def list_user_groups(self, username: str) -> List[str]:
+    def get_room_members(self, room_name: str) -> List[str]:
         cursor = self.conn.execute(
-            "SELECT group_name FROM group_members WHERE username = ? AND active = 1",
-            (username,)
+            "SELECT username FROM room_members WHERE room_name = ?",
+            (room_name,)
         )
         return [row[0] for row in cursor.fetchall()]
 
-    # GROUP MEMBER FUNCTIONS
-    def add_group_member(self, group_name: str, username: str, leaf_index: int) -> bool:
-        try:
-            # Mark active and set leaf_index
-            self.conn.execute("""
-                INSERT INTO group_members (group_name, username, leaf_index, active) 
-                VALUES (?, ?, ?, 1)
-                ON CONFLICT(group_name, username) DO UPDATE SET active=1, leaf_index=excluded.leaf_index
-            """, (group_name, username, leaf_index))
-            self.conn.commit()
-            return True
-        except sqlite3.Error:
-            return False
-
-    def remove_group_member(self, group_name: str, username: str) -> bool:
-        self.conn.execute(
-            "UPDATE group_members SET active = 0 WHERE group_name = ? AND username = ?",
-            (group_name, username)
-        )
-        self.conn.commit()
-        return True
-
-    def get_group_members(self, group_name: str, only_active: bool = True) -> List[Dict[str, Any]]:
-        query = "SELECT username, leaf_index FROM group_members WHERE group_name = ?"
-        if only_active:
-            query += " AND active = 1"
-        cursor = self.conn.execute(query, (group_name,))
-        return [dict(row) for row in cursor.fetchall()]
-
-    def is_group_member(self, group_name: str, username: str) -> bool:
+    def is_room_member(self, room_name: str, username: str) -> bool:
+        # Verifica se utilizador é membro de uma sala
         cursor = self.conn.execute(
-            "SELECT 1 FROM group_members WHERE group_name = ? AND username = ? AND active = 1",
-            (group_name, username)
+            "SELECT 1 FROM room_members WHERE room_name = ? AND username = ?",
+            (room_name, username)
         )
         return cursor.fetchone() is not None
 
-    # TREE STATE FUNCTIONS
-    def store_tree_node(self, group_name: str, node_index: int, public_key: bytes):
-        self.conn.execute("""
-            INSERT INTO tree_nodes (group_name, node_index, public_key) 
-            VALUES (?, ?, ?)
-            ON CONFLICT(group_name, node_index) DO UPDATE SET public_key=excluded.public_key
-        """, (group_name, node_index, public_key))
-        self.conn.commit()
-
-    def get_tree_nodes(self, group_name: str) -> List[Dict[str, Any]]:
+    def get_user_rooms(self, username: str) -> List[str]:
+        # Retorna salas de um utilizador
         cursor = self.conn.execute(
-            "SELECT node_index, public_key FROM tree_nodes WHERE group_name = ?",
-            (group_name,)
-        )
-        return [dict(row) for row in cursor.fetchall()]
-
-    def store_group_key_package(self, group_name: str, epoch: int, username: str, encrypted_blob: bytes):
-        self.conn.execute("""
-            INSERT INTO group_key_packages (group_name, epoch, username, encrypted_blob) 
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(group_name, epoch, username) DO UPDATE SET encrypted_blob=excluded.encrypted_blob
-        """, (group_name, epoch, username, encrypted_blob))
-        self.conn.commit()
-
-    def get_key_packages_for_user(self, username: str) -> List[Dict[str, Any]]:
-        # Returns current key packages for all groups user is in
-        cursor = self.conn.execute("""
-            SELECT kp.group_name, kp.epoch, kp.encrypted_blob
-            FROM group_key_packages kp
-            JOIN groups g ON kp.group_name = g.name
-            WHERE kp.username = ? AND kp.epoch = g.epoch
-        """, (username,))
-        return [dict(row) for row in cursor.fetchall()]
-
-    # GROUP MESSAGE FUNCTIONS
-    def store_group_message(self, group_name: str, recipient: str, sender: str, epoch: int, content: bytes, nonce: bytes, tag: bytes):
-        self.conn.execute(
-            "INSERT INTO group_messages (group_name, recipient, sender, epoch, encrypted_content, nonce, tag) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (group_name, recipient, sender, epoch, content, nonce, tag)
-        )
-        self.conn.commit()
-
-    def get_group_messages_for_user(self, username: str) -> List[Dict[str, Any]]:
-        cursor = self.conn.execute(
-            "SELECT id, group_name, sender, epoch, encrypted_content as content, nonce, tag, created_at FROM group_messages WHERE recipient = ? ORDER BY created_at ASC",
+            "SELECT room_name FROM room_members WHERE username = ?",
             (username,)
         )
-        return [dict(row) for row in cursor.fetchall()]
-
-    def clear_group_messages_for_user(self, username: str):
-        self.conn.execute("DELETE FROM group_messages WHERE recipient = ?", (username,))
-        self.conn.commit()
-
-    def get_group_messages(self, group_name: str, limit: int = 50) -> List[Dict[str, Any]]:
-        cursor = self.conn.execute(
-            "SELECT sender, epoch, encrypted_content as content, nonce, tag, created_at FROM group_messages WHERE group_name = ? ORDER BY created_at DESC LIMIT ?",
-            (group_name, limit)
-        )
-        return [dict(row) for row in cursor.fetchall()]
+        return [row[0] for row in cursor.fetchall()]

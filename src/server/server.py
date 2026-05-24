@@ -3,11 +3,9 @@ import logging
 import signal
 import os
 import sys
-import traceback
 
 from .storage import Storage
 from .user_manager import OnlineUserManager
-from .message_router import MessageRouter
 from .tcp_handler import ClientHandler
 from .server_keys_generator import generate_server_keys, load_server_pubkey, load_server_privkey
 
@@ -37,7 +35,6 @@ class ChatServer:
     async def start(self):
         import os
         password = os.environ.get("SERVER_PASSWORD") or input("Defina a password para o servidor: ")
-        logger.info(f"[*] Tentativa de arranque com password_env={os.environ.get('SERVER_PASSWORD') is not None}")
         if password != "server":
             logger.error("[!] Password incorreta. Encerrando.")
             sys.exit(1)

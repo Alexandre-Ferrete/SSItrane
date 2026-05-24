@@ -350,59 +350,6 @@ class ClientHandler:
                         except: pass
             return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": f"Grupo {room} OK"}), None, False
 
-        if cmd == MessageType.GROUP_ADD_MEMBER.value:
-            room, new_user = data.get("room_name"), data.get("username")
-            total, epoch = data.get("total_leaves"), data.get("epoch")
-            tree, pkgs = data.get("public_tree", {}), data.get("key_packages", [])
-            
-            if not self.server.storage.is_group_member(room, self.username):
-                return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Não autorizado"}), None, False
-            
-            # 1. Atualizar info do grupo (total_leaves e epoch)
-            self.server.storage.update_group_epoch(room, epoch)
-            self.server.storage.conn.execute("UPDATE groups SET total_leaves = ? WHERE name = ?", (total, room))
-            self.server.storage.conn.commit()
-            
-            # 2. Adicionar novo membro
-            for kp in pkgs:
-                u, blob = kp.get("username"), kp.get("encrypted_blob")
-                if u == new_user:
-                    leaf_idx = kp.get("leaf_index", total) 
-                    self.server.storage.add_group_member(room, u, leaf_idx)
-                    
-                    # Store/Send KeyPackage
-                    self.server.storage.store_group_key_package(room, epoch, u, json.dumps(blob).encode('utf-8'))
-                    h = await self.server.online_users.get_user_socket(u)
-                    if h:
-                        try: await h.send_message(Message(MessageType.GROUP_KEY_PACKAGE.value, "server", {"room_name": room, "epoch": epoch, "encrypted_blob": blob}))
-                        except: pass
-
-            # 3. Atualizar nós da árvore
-            for idx, pub in tree.items():
-                self.server.storage.store_tree_node(room, int(idx), base64.b64decode(pub))
-
-            # 4. Broadcast de UPDATE para os outros membros (incluindo metadados novos)
-            mems_db = self.server.storage.get_group_members(room, True)
-            full_member_list = [m["username"] for m in mems_db]
-            
-            upd = Message(MessageType.GROUP_UPDATE.value, self.username, {
-                "room_name":    room,
-                "new_epoch":    epoch,
-                "total_leaves": total,
-                "members":      full_member_list,
-                "public_keys":  tree,
-                "path_updates": data.get("path_updates", {})
-            })
-            
-            for m in mems_db:
-                if m["username"] == self.username or m["username"] == new_user: continue
-                h = await self.server.online_users.get_user_socket(m["username"])
-                if h:
-                    try: await h.send_message(upd)
-                    except: pass
-
-            return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": f"{new_user} adicionado"}), None, False
-
         if cmd == MessageType.GROUP_MSG.value:
             room, epoch = data.get("room_name"), data.get("epoch")
             content, nonce, tag = data.get("content"), data.get("nonce"), data.get("tag")
@@ -418,27 +365,13 @@ class ClientHandler:
         if cmd == MessageType.GROUP_INFO.value:
             room = data.get("room_name")
             g = self.server.storage.get_group(room)
-            if not g: return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Grupo não encontrado"}), None, False
-            
-            members_db = self.server.storage.get_group_members(room, True)
-            active_list = [m["username"] for m in members_db]
-            
+            if not g: return self._build_response(MessageType.RESPONSE, "server", {"status": "error"}), None, False
+            members = self.server.storage.get_group_members(room, True)
             nodes = self.server.storage.get_tree_nodes(room)
             pub_tree = {str(n["node_index"]): base64.b64encode(n["public_key"]).decode('utf-8') for n in nodes}
-            
-            return self._build_response(MessageType.RESPONSE, "server", {
-                "status": "success",
-                "message": f"Info de {room} obtida",
-                "room_name": room,
-                "created_by": g["created_by"],
-                "epoch": g["epoch"],
-                "total_leaves": g["total_leaves"],
-                "members": active_list, # Sincronizado com o que o cliente espera
-                "public_tree": pub_tree
-            }), None, False
+            return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "room_name": room, "created_by": g["created_by"], "epoch": g["epoch"], "total_leaves": g["total_leaves"], "members": [m["username"] for m in members], "public_tree": pub_tree}), None, False
 
         if cmd == MessageType.GROUP_UPDATE.value:
-
             room, epoch = data.get("room_name"), data.get("new_epoch")
             pub_keys, pkgs = data.get("public_keys", {}), data.get("key_packages", [])
             if not self.server.storage.is_group_member(room, self.username): return self._build_response(MessageType.RESPONSE, "server", {"status": "error"}), None, False
@@ -485,11 +418,11 @@ class ClientHandler:
 
             if action == "store":
                 rec, cont, non, tag, eph = data.get("recipient"), data.get("content"), data.get("nonce"), data.get("tag"), data.get("ephemeral_key")
-                if not rec or not cont: return self._build_response(MessageType.RESPONSE, "server", {"status": "error", "message": "Dados insuficientes"}), None, False
+                if not rec or not cont: return self._build_response(MessageType.RESPONSE, "server", {"status": "error"}), None, False
                 c_b, n_b, t_b, e_b = base64.b64decode(cont), base64.b64decode(non) if non else None, base64.b64decode(tag) if tag else None, base64.b64decode(eph) if eph else None
                 targets = self.server.storage.get_devices(rec)
                 for d in targets: self.server.storage.store_offline_message(rec, sender, c_b, n_b, t_b, device_id=d["id"], ephemeral_key=e_b)
-                return self._build_response(MessageType.RESPONSE, "server", {"status": "success", "message": "Mensagem guardada offline"}), None, False
+                return self._build_response(MessageType.RESPONSE, "server", {"status": "success"}), None, False
 
         if cmd == MessageType.DISCONNECT.value:
             return self._build_response(MessageType.RESPONSE, "server", {"status": "success"}), None, True

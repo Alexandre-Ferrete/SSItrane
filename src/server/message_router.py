@@ -3,7 +3,6 @@
 
 import logging
 import base64
-import json
 from typing import Optional, List, Dict, Any
 from protocol.messages import Message, MessageType
 
